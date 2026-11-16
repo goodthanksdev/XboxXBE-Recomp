@@ -27,8 +27,20 @@ void AddPad(SDL_JoystickID id) {
     SDL_Gamepad** slot = std::find(std::begin(g_pads), std::end(g_pads), nullptr);
     if (slot == std::end(g_pads)) return;
     *slot = SDL_OpenGamepad(id);
+    // Steam can give a game started through a launcher two virtual pads for one controller: the same Steam handle
+    if (uint64_t steam = *slot ? SDL_GetGamepadSteamHandle(*slot) : 0) {
+        for (SDL_Gamepad* other : g_pads)
+            if (other && other != *slot && SDL_GetGamepadSteamHandle(other) == steam) {
+                LOGR("input: %s again (Steam handle %llX), left out", SDL_GetGamepadName(*slot), (unsigned long long)steam);
+                SDL_CloseGamepad(*slot);
+                *slot = nullptr;
+                return;
+            }
+    }
     const char* name = *slot ? SDL_GetGamepadName(*slot) : SDL_GetError();
-    LOGI("input: controller %d %s: %s", int(slot - g_pads) + 1, *slot ? "plugged in" : "failed to open", name ? name : "");
+    LOGR("input: controller %d %s: %s (Steam handle %llX, %s)", int(slot - g_pads) + 1, *slot ? "plugged in" : "failed to open",
+         name ? name : "", *slot ? (unsigned long long)SDL_GetGamepadSteamHandle(*slot) : 0ull,
+         *slot && SDL_GetGamepadPath(*slot) ? SDL_GetGamepadPath(*slot) : "-");
 }
 
 void RemovePad(SDL_JoystickID id) {
@@ -63,6 +75,7 @@ void Init() {
     SDL_SetHint(SDL_HINT_JOYSTICK_THREAD, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, "1");
     SDL_SetHint(SDL_HINT_JOYSTICK_WGI, "1");
+    SDL_SetHint(SDL_HINT_JOYSTICK_GAMEINPUT, "0");  // a second way to the same pads: each one showed up twice
     SDL_SetHint(SDL_HINT_JOYSTICK_RAWINPUT, "0");
     SDL_SetHint(SDL_HINT_XINPUT_ENABLED, "0");
     SDL_SetHint(SDL_HINT_JOYSTICK_DIRECTINPUT, "0");
