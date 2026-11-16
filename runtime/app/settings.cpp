@@ -54,6 +54,7 @@ void Load() {
     s.dump_textures = t["dump_textures"].value_or(s.dump_textures);
     s.texture_dump_format = std::min(t["texture_dump_format"].value_or(s.texture_dump_format), 1u);
     s.join_ip = t["join_ip"].value_or(s.join_ip);
+    s.aspect_4_3 = t["aspect_4_3"].value_or(s.aspect_4_3);
     s.audio_output = std::min(t["audio_output"].value_or(s.audio_output), audio::kOutputMono);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
@@ -78,6 +79,7 @@ toml::table Table() {
                   {"dump_textures", s.dump_textures},
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
                   {"join_ip", s.join_ip},
+                  {"aspect_4_3", s.aspect_4_3},
                   {"audio_output", int64_t(s.audio_output)}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
@@ -149,6 +151,9 @@ Mode CachedOutput() {
 
 // asked per frame and per HUD quad: CachedOutput costs a monitor lookup, the registry only on a change
 bool Widescreen() {
+    // The console's video mode is read once, at start: the 4:3 setting takes effect then.
+    static const bool four_three = Get().aspect_4_3;
+    if (four_three) return false;
     Mode m = CachedOutput();
     return m.width * 2 >= m.height * 3;  // 3:2 or wider
 }

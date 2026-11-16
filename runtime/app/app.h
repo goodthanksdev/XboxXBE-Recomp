@@ -27,6 +27,7 @@ struct Settings {
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
+    bool aspect_4_3 = false;           // tell the game it's on a 4:3 TV and show 4:3 (read at start)
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
 };
 
