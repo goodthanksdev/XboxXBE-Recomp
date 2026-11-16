@@ -9,6 +9,7 @@
 #include <SDL3/SDL.h>
 
 #include "app/app.h"
+#include "core/keys.h"
 #include "core/log.h"
 
 namespace input {
@@ -110,6 +111,7 @@ Pad Poll(int port) {
         }
     }
     if (app::kGame.pad) app::kGame.pad(port, p);
+    AddKeys(port, p);
     return p;
 }
 

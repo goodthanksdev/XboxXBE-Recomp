@@ -16,6 +16,7 @@
 
 #include "app/app.h"
 #include "audio/audio.h"
+#include "core/keys.h"
 #include "core/log.h"
 
 namespace app {
@@ -60,6 +61,9 @@ void Load() {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
     }
+    if (const toml::table* keys = t["keys"].as_table())
+        for (int i = 0; i < input::KeyControls(); i++)
+            if (auto v = (*keys)[input::KeyControlId(i)].value<std::string>()) input::SetKeysText(i, *v);
     if (kGame.load) kGame.load(&t);
     audio::SetOutputMode(s.audio_output);
 }
@@ -84,6 +88,11 @@ toml::table Table() {
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
+    }
+    if (input::KeyControls()) {
+        toml::table keys;
+        for (int i = 0; i < input::KeyControls(); i++) keys.insert(input::KeyControlId(i), input::KeysText(i));
+        t.insert("keys", keys);
     }
     if (kGame.save) kGame.save(&t);
     return t;

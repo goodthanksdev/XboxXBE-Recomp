@@ -73,6 +73,14 @@ void FinishHandover();  // any thread but the window thread's: opens the game wi
 // held around ImGui: the window thread's messages and the renderer's frame
 std::recursive_mutex& UiLock();
 
+// a control the keyboard can press: the pad's "up" "down" "left" "right" (left stick), "dpad_up" and the rest,
+// "a" "b" "x" "y" "black" "white" "lt" "rt" "start" "back" "ls" "rs"; its name as the game calls it; default keys
+struct KeyControl {
+    const char* control;
+    const char* label;
+    const char* keys;  // "W, Enter"
+};
+
 // what the game repo defines once
 struct Option {  // a setting in the settings file, flag or value
     const char* key;
@@ -102,6 +110,7 @@ struct GameInfo {
     void (*rumble)(int port, uint16_t& left, uint16_t& right);
     // xbe file name, SHA-1: other releases the executable runs, each from its own [xbe] named config
     std::vector<std::pair<const char*, const char*>> releases;
+    std::vector<KeyControl> keys;  // keyboard play into the first port (core/keys.h); none: no keyboard
 };
 extern const GameInfo kGame;
 

@@ -20,6 +20,7 @@
 
 #include "app/app.h"
 #include "core/input.h"
+#include "core/keys.h"
 #include "core/log.h"
 #include "gpu/backend.h"
 #include "image_symbols.h"
@@ -124,6 +125,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         std::lock_guard lock(UiLock());
         if (ImGui::GetCurrentContext() && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
     }
+    if (input::KeyMessage(msg, wp, lp)) return 0;  // a key being bound
     if (intptr_t result = 0; kGame.message && kGame.message(hwnd, msg, wp, lp, &result)) return result;
     switch (msg) {
         case WM_KEYDOWN:
