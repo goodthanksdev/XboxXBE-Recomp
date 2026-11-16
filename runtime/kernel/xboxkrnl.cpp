@@ -868,6 +868,7 @@ KERNEL_EXPORT(148, KeSetPriorityThread, 2) {
     if (!t) return 0;
     int old = t->priority;
     t->priority = int32_t(a[1]);
+    ApplyPriority(*t);
     return uint32_t(old);
 }
 KERNEL_EXPORT(124, KeQueryBasePriorityThread, 1) {
@@ -882,6 +883,7 @@ KERNEL_EXPORT(143, KeSetBasePriorityThread, 2) {
     auto& t = static_cast<Thread&>(*o);
     int old = t.priority;
     t.priority = int32_t(a[1]);
+    ApplyPriority(t);
     return uint32_t(old);
 }
 

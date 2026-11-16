@@ -72,6 +72,7 @@ void Unregister(Thread* t) {
 
 void MarkExited(Thread& t, uint32_t code) {
     t.exit_code = code;
+    if (t.ethread) W32(t.ethread + 0x120, code);  // ETHREAD.ExitStatus: the XDK GetExitCodeThread reads it directly
     std::lock_guard<std::mutex> lock(DispatchLock());
     SetSignal(t, 1);
     SignalChanged();
@@ -128,10 +129,42 @@ ThreadRef CreateThread(uint32_t stack_size, uint32_t tls_size, uint32_t system_r
     return t;
 }
 
+// The Xbox has one CPU: its games can assume two of their threads never run at the same moment, and some do (a
+// loader thread drawing with the main thread's render state). Guest threads are all kept on one host core, where the
+// host scheduler gives the same one-at-a-time behaviour with the guest's priorities. Host helper threads (renderer,
+// audio, timers) run anywhere. XBR_MULTICORE=1 turns this off.
+static DWORD_PTR GuestCoreMask() {
+    static DWORD_PTR mask = [] {
+        char v[8];
+        if (GetEnvironmentVariableA("XBR_MULTICORE", v, sizeof v) && v[0] == '1') return DWORD_PTR(0);
+        DWORD_PTR proc = 0, sys = 0;
+        GetProcessAffinityMask(GetCurrentProcess(), &proc, &sys);
+        DWORD_PTR top = 0;
+        for (int i = 0; i < int(sizeof(DWORD_PTR) * 8); i++) if (proc & (DWORD_PTR(1) << i)) top = DWORD_PTR(1) << i;
+        LOGI("threads: guest threads on one core (mask %llX)", (unsigned long long)top);
+        return top;
+    }();
+    return mask;
+}
+void ApplyPriority(Thread& t) {
+    if (!t.host) return;
+    int p = t.priority;
+    int host = p >= 15 ? THREAD_PRIORITY_TIME_CRITICAL : p <= -15 ? THREAD_PRIORITY_IDLE : std::clamp(p, -2, 2);
+    ::SetThreadPriority(static_cast<HANDLE>(t.host), host);
+}
+static void AdoptHostThread(Thread& t) {
+    HANDLE h = nullptr;
+    ::DuplicateHandle(::GetCurrentProcess(), ::GetCurrentThread(), ::GetCurrentProcess(), &h, 0, FALSE, DUPLICATE_SAME_ACCESS);
+    t.host = h;
+    if (DWORD_PTR m = GuestCoreMask()) ::SetThreadAffinityMask(::GetCurrentThread(), m);
+    ApplyPriority(t);
+}
+
 void StartThread(ThreadRef t) {
     Register(t);
     Spawn([t] {
         t_current = t;
+        AdoptHostThread(*t);
         char name[32];
         std::snprintf(name, sizeof(name), "guest %X", t->id);
         NameHostThread(name);

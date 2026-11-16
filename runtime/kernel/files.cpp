@@ -186,6 +186,15 @@ std::string ReadCString(uint32_t va, size_t max) {
     return s;
 }
 
+void FormatUtilityPartition() {
+    std::lock_guard<std::mutex> lock(g_links_lock);
+    auto it = g_devices.find("\\DEVICE\\HARDDISK0\\PARTITION5");
+    if (it == g_devices.end()) return;
+    std::error_code ec;
+    for (auto& e : fs::directory_iterator(it->second, ec)) fs::remove_all(e.path(), ec);
+    LOGI("files: utility partition formatted");
+}
+
 void MountDefaults(const std::string& game_dir, const std::string& data_dir) {
     std::lock_guard<std::mutex> lock(g_links_lock);
     fs::path d = data_dir;
@@ -593,17 +602,19 @@ KERNEL_EXPORT(218, NtQueryVolumeInformationFile, 5) {
     uint32_t iosb = a[1], out = a[2], len = a[3], cls = a[4];
     std::memset(HostPtr(out), 0, len);
     switch (cls) {
-        case 3:  // FileFsSizeInformation: 16 GiB total, 8 GiB free in 16 KiB units
-            W64(out, 0x100000);
-            W64(out + 8, 0x80000);
+        // sizes in 16 KiB units, 4.5 GiB total and 3.5 GiB free like a real Xbox data partition: free bytes must not be a
+        // multiple of 4 GiB, since games that read only the low 32 bits would see a full disk
+        case 3:  // FileFsSizeInformation
+            W64(out, 0x48000);
+            W64(out + 8, 0x38000);
             W32(out + 0x10, 32);
             W32(out + 0x14, 512);
             IoStatus(iosb, kSuccess, 0x18);
             return kSuccess;
         case 7:  // FileFsFullSizeInformation
-            W64(out, 0x100000);
-            W64(out + 8, 0x80000);
-            W64(out + 0x10, 0x80000);
+            W64(out, 0x48000);
+            W64(out + 8, 0x38000);
+            W64(out + 0x10, 0x38000);
             W32(out + 0x18, 32);
             W32(out + 0x1C, 512);
             IoStatus(iosb, kSuccess, 0x20);

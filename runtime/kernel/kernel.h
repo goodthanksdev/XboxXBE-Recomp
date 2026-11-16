@@ -154,6 +154,7 @@ struct Thread : Object {
     uint32_t kpcr = 0, ethread = 0, stack_top = 0, stack_size = 0, tls = 0;
     uint32_t exit_code = 0;
     int priority = 0;
+    void* host = nullptr;  // the host thread running it (for priority changes)
     std::atomic<int> suspend{0};
     std::mutex apc_lock;
     std::deque<std::array<uint32_t, 4>> apcs;  // routine, arg1, arg2, arg3
@@ -166,6 +167,8 @@ using ThreadRef = std::shared_ptr<Thread>;
 Thread* Current();
 ThreadRef CurrentRef();
 void StartHostThread(const char* name, std::function<void(X86Context&)> fn);
+// The guest's priority (XAPI style: -2..2, or -15/15 for idle/time critical) on the host thread running it.
+void ApplyPriority(Thread& t);
 void RunDpcs(X86Context& ctx);
 void InitKernelData();
 void LogGuestStack(X86Context& ctx, int words);
@@ -183,6 +186,7 @@ std::vector<ThreadRef> Threads();
 
 // files
 void MountDefaults(const std::string& game_dir, const std::string& data_dir);
+void FormatUtilityPartition();  // empties the title's cache partition (Z:), as XMountUtilityDrive(TRUE) does
 bool CreateSymbolicLink(const std::string& link, const std::string& target);
 bool DeleteSymbolicLink(const std::string& link);
 std::string QuerySymbolicLink(const std::string& link);

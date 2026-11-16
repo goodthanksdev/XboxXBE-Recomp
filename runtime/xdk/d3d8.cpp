@@ -9,12 +9,14 @@
 #include <windows.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <map>
 #include <thread>
 #include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 #include "app/app.h"
 #include "core/diag.h"
@@ -806,24 +808,49 @@ HLE_STDCALL(D3DDevice_SetTransform, 2) {
 }
 
 HLE_STDCALL(D3DDevice_SetMaterial, 1) {
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
     std::memcpy(g_state.material.data(), HostPtr(a[0]), 17 * 4);
     return 0;
 }
 
-// the XDK keeps its own light lists, the renderer gets a copy
+// the XDK keeps its own light lists, the renderer gets a copy. A light index is any number, as in D3D8, and up to 8 are
+// on at once: the renderer's slots hold the enabled ones in the order they were enabled.
+static std::map<uint32_t, std::array<uint32_t, 26>> g_lights;
+static std::vector<uint32_t> g_lights_on;
+
+static void SyncLights() {
+    g_state.light_enable = 0;
+    for (size_t k = 0; k < 8 && k < g_lights_on.size(); k++) {
+        g_state.lights[k] = g_lights[g_lights_on[k]];
+        g_state.light_enable |= 1u << k;
+    }
+}
+
 HLE_WRAP(D3DDevice_SetLight, 2) {
     uint32_t i = a[0], l = a[1];
-    if (i < 8 && l) {
-        std::lock_guard<std::recursive_mutex> lock(g_lock);
-        std::memcpy(g_state.lights[i].data(), HostPtr(l), 26 * 4);
-    }
+    if (!l) return;
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    std::memcpy(g_lights[i].data(), HostPtr(l), 26 * 4);
+    if (std::find(g_lights_on.begin(), g_lights_on.end(), i) != g_lights_on.end()) SyncLights();
 }
 HLE_WRAP(D3DDevice_LightEnable, 2) {
     uint32_t i = a[0], on = a[1];
-    if (i < 8) {
-        std::lock_guard<std::recursive_mutex> lock(g_lock);
-        g_state.light_enable = on ? g_state.light_enable | 1u << i : g_state.light_enable & ~(1u << i);
+    std::lock_guard<std::recursive_mutex> lock(g_lock);
+    auto it = std::find(g_lights_on.begin(), g_lights_on.end(), i);
+    if (on && it == g_lights_on.end()) {
+        if (!g_lights.count(i)) {  // D3D8 makes a default light: white directional along +z
+            std::array<uint32_t, 26> d{};
+            auto F = [](float f) { uint32_t u; std::memcpy(&u, &f, 4); return u; };
+            d[0] = 3;
+            d[1] = d[2] = d[3] = F(1.0f);
+            d[18] = F(1.0f);
+            g_lights[i] = d;
+        }
+        g_lights_on.push_back(i);
+    } else if (!on && it != g_lights_on.end()) {
+        g_lights_on.erase(it);
     }
+    SyncLights();
 }
 
 // resources in use

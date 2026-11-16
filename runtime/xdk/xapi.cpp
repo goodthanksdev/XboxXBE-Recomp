@@ -45,6 +45,8 @@ std::unordered_map<uint32_t, Handle> g_handles;
 }  // namespace
 
 HLE_STDCALL(XMountUtilityDrive, 1) {
+    LOGI("XMountUtilityDrive(format clean %u)", a[0]);
+    if (a[0]) FormatUtilityPartition();  // fFormatClean: the title asks for an empty cache
     CreateSymbolicLink("\\??\\Z:", "\\Device\\Harddisk0\\Partition5");
     return 1;
 }

@@ -34,8 +34,8 @@ constexpr uint32_t kSmall = 0x40;
 constexpr uint32_t kNegative = 0xFFFFFF00;
 // a match by constants needs this many in common, this score, and this lead over every rival
 constexpr size_t kMinConstants = 3;
-constexpr double kAccept = 0.6;
-constexpr double kLead = 0.2;
+constexpr double kAccept = 0.35;
+constexpr double kLead = 0.08;
 const char* const kRegs[] = {"eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"};
 constexpr int kRegCount = int(std::size(kRegs));
 
@@ -79,8 +79,27 @@ std::string Regs(uint8_t m) {
     return r;
 }
 
+// Local experiment (Crash Nitro Kart): with XBE_SYMBOLS_SHIFT set, a signature's CDevice offsets also match
+// where this image's 5558 device has them: 5849 fields from 0x774 to 0x9FF sit 4 lower, from 0xC00 to 0x24FF 0x10 lower.
+static uint32_t Shifted(uint32_t v) {
+    if (v >= 0x774 && v < 0xA00) return v - 4;
+    if (v >= 0xC00 && v < 0x2500) return v - 0x10;
+    return v;
+}
+static const bool kShift = std::getenv("XBE_SYMBOLS_SHIFT") != nullptr;
+
 // share of the constants two functions have in common, repeats counted
 double Similar(const std::vector<uint32_t>& a, const std::vector<uint32_t>& b) {
+    if (kShift) {
+        std::map<uint32_t, int> left;
+        for (uint32_t v : b) left[v]++;
+        size_t both = 0;
+        for (uint32_t v : a) {
+            for (uint32_t w : {v, Shifted(v)})
+                if (auto it = left.find(w); it != left.end() && it->second > 0) { it->second--; both++; break; }
+        }
+        return both < kMinConstants ? 0 : double(both) / double(a.size() + b.size() - both);
+    }
     size_t i = 0;
     size_t j = 0;
     size_t both = 0;

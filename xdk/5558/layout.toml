@@ -1,0 +1,52 @@
+# XDK 5558 library data layouts, read from Crash Nitro Kart (default.xbe, 5558 libraries). Fields not noted are as in 5849.
+# (Splinter Cell Double Agent) code at the address given; sc4_adv.xbe (same 5849 libraries) matches.
+[layout]
+# D3D8 CDevice, the static device D3D__pDevice points at
+CDevice_Push          = 0x0     # D3DDevice_SetTexture 0x49B112 reads it, compares with +4, calls MakeSpace 0x4A1740
+CDevice_PushThreshold = 0x4     # D3DDevice_SetTexture 0x49B115 compares the push pointer with it
+CDevice_BaseVertex    = 0x1C    # D3DDevice_SetIndices 0x49B2C9 stores BaseVertexIndex
+CDevice_IndexBuffer   = 0x79C  # CNK: D3DDevice_SetIndices 0x373DAA reads, 0x373DD2 stores
+CDevice_ZScale        = 0x944  # CNK: 0x378006 multiplies it by +0x940
+CDevice_SuperSampleX  = 0x958  # CNK: D3DDevice_SetViewport 0x373602
+CDevice_SuperSampleY  = 0x95C  # CNK: D3DDevice_SetViewport 0x373656
+CDevice_Transforms    = 0xC50  # CNK: D3DDevice_SetTransform 0x372926: +0xC50 + type * 64
+CDevice_Textures      = 0xF78  # CNK: D3DDevice_SetTexture 0x373B50 reads, 0x373B89 stores [stage]
+CDevice_Palettes      = 0xF88  # CNK: Textures + 0x10 as in 4831 and 5849
+CDevice_RenderTarget  = 0x19F4  # CNK: D3DDevice_SetViewport 0x373507
+CDevice_Depth         = 0x19F8  # CNK: RenderTarget + 4 as in 4831 and 5849
+CDevice_BackBuffer    = 0x1A04  # CNK: D3DDevice_SetViewport 0x37350D
+CDevice_FrontBuffer   = 0x1A08  # CNK: D3DDevice_SetViewport 0x373515
+CDevice_SwapCount     = 0x2468  # CNK: D3DDevice_Swap 0x376780 increments it, 0x3767FB returns it
+CDevice_Size          = 0x2490  # CNK: 5849 - 0x10 like every field from 0xC00
+CDevice_Flags             = 0x8    # Direct3D_CreateDevice 0x49D263 ors BehaviorFlags & 0x10 into it (0x4AB678), D3DDevice_SetPixelShader 0x4A5DB1 tests that bit
+CDevice_Time              = 0x2C  # CNK: D3D_SetFence 0x379D74
+CDevice_PixelShader       = 0x780  # CNK: D3DDevice_SetPixelShader 0x378A28 stores the handle
+CDevice_VertexShader      = 0x790  # CNK: D3DDevice_SetVertexShader 0x3780A1
+CDevice_BackBufferScale   = 0x968  # CNK: 5849 - 4 like every field from 0x774 to 0x9FF
+CDevice_Viewport          = 0xED0  # CNK: D3DDevice_SetViewport 0x3736A0 to 0x3736CC
+CDevice_ScreenSpaceOffset = 0xEE8  # CNK: Viewport + 0x18 as in 4831 and 5849
+CDevice_AutoDepth         = 0x1A10  # CNK: 5849 - 0x10
+CDevice_VBlankCallback    = 0x1DA8  # CNK: miniport (+0x1C18, D3DDevice_SetGammaRamp 0x372863) + 0x190
+CDevice_VBlankEvent       = 0x1DAC  # CNK: miniport + 0x194
+CDevice_DisplayFlags      = 0x1DCC  # CNK: 0x372DD8 reads it, miniport + 0x1B4
+CDevice_VBlankCount       = 0x1DD8  # CNK: 0x375E47 reads, 0x375E5B stores, miniport + 0x1C0
+CDevice_Field             = 0x1DE8  # CNK: miniport + 0x1D0
+CDevice_GammaRamps        = 0x1DF4  # CNK: D3DDevice_SetGammaRamp: miniport + 0x1DC + index * 0x300
+CDevice_GammaPending      = 0x23F4  # CNK: D3DDevice_SetGammaRamp 0x3728C1: miniport + 0x7DC + index * 4
+# D3D8 globals
+DirtyFlags_Texture    = 0x4800  # D3DDevice_SetTexture 0x49B147 ors it into D3D__DirtyFlags
+TextureState_Stage    = 32      # D3DDevice_SetTextureStageStateNotInline 0x49FA4B: [stage * 32 + type] dwords
+Stream_Size           = 12      # D3DDevice_SetStreamSource 0x49E9FA indexes the stream table by n * 12
+Stream_Stride         = 0x0     # D3DDevice_SetStreamSource 0x49EA42 stores Stride
+Stream_Buffer         = 0x8     # D3DDevice_SetStreamSource 0x49EA48 stores the vertex buffer
+PixelShader_Definition = 0x8  # D3DDevice_CreatePixelShader 0x4A5C84 stores the definition pointer, D3DDevice_SetPixelShader 0x4A5D50 reads it; Black 0x26BD88
+# DSOUND
+CDirectSoundStream_Vtable  = 0x0  # CDirectSoundStream constructor 0x4D0050 stores the first vtable
+CDirectSoundStream_Vtable2 = 0x4  # CDirectSoundStream constructor 0x4D0049 stores the second vtable
+EffectsImage_Skip0    = 0x804   # 0x4D1DA8 (reached from CDirectSound_DownloadEffectsImage 0x4CDB81) adds this dword count
+EffectsImage_Skip1    = 0x80C   # 0x4D1DA2 loads this dword count
+EffectsImage_Desc     = 0x818   # 0x4D1DB1: descriptor at image + 0x818 + (Skip0 + Skip1) * 4
+# XAPI XPP device type record
+XPP_Current           = 0x0     # XGetDevices 0x4EDAA0 returns it
+XPP_Changed           = 0x4     # XGetDevices 0x4EDAA2 clears it, XGetDeviceChanges 0x4EDAC0 tests it
+XPP_Previous          = 0x8     # XGetDevices 0x4EDAA8 copies Current into it
