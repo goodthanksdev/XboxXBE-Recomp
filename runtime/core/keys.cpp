@@ -63,6 +63,7 @@ std::mutex g_lock;
 std::vector<std::array<int, kKeySlots>> g_keys;  // per GameInfo::keys control
 std::atomic<bool> g_off{false};
 std::atomic<int> g_capture{-1};  // control * kKeySlots + slot
+std::atomic<uint64_t> g_pad_used{0};  // GetTickCount64 when port 0's controller last had input
 uint8_t g_wait[256];             // down when the keys came back on: counts once let go
 
 void Ensure() {
@@ -157,8 +158,11 @@ bool KeyMessage(uint32_t msg, uintptr_t wp, intptr_t lp) {
     return true;  // every key while capturing, F1 and the rest
 }
 
+void ControllerUsed() { g_pad_used = GetTickCount64(); }
+
 void AddKeys(int port, Pad& p) {
     if (port != 0 || app::kGame.keys.empty() || g_off || g_capture >= 0) return;
+    if (GetTickCount64() - g_pad_used < 2000) return;  // the controller is in use
     if (GetForegroundWindow() != static_cast<HWND>(app::Window())) return;
     static const char* kButtons[] = {"dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "ls", "rs"};
     static const char* kAnalog[] = {"a", "b", "x", "y", "black", "white", "lt", "rt"};

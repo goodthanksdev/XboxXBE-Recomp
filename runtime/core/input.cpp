@@ -108,6 +108,10 @@ Pad Poll(int port) {
             p.ly = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_LEFTY));
             p.rx = int16_t(axis(SDL_GAMEPAD_AXIS_RIGHTX));
             p.ry = int16_t(-1 - axis(SDL_GAMEPAD_AXIS_RIGHTY));
+            auto moved = [](int v) { return v > 8000 || v < -8000; };
+            bool used = p.buttons || moved(p.lx) || moved(p.ly) || moved(p.rx) || moved(p.ry);
+            for (uint8_t a : p.analog) used |= a > 0x20;
+            if (used && port == 0) ControllerUsed();
         }
     }
     if (app::kGame.pad) app::kGame.pad(port, p);
