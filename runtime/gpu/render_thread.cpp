@@ -43,7 +43,7 @@ constexpr uint32_t kHeaderRing = 1u << 20;  // guest memory for header copies; a
 
 enum class WaitFor : uint8_t { ReadBack, Resource, Fence, Flush, Copy, Frame, Count };
 
-enum class Op : uint8_t { State, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport };
+enum class Op : uint8_t { State, Snap, Draw, Clear, Copy, Present, Sync, RecordLate, Flush, Gamma, ClearReport, GetReport };
 
 struct Cmd {
     Op op;
@@ -127,10 +127,12 @@ public:
             c.d = 1;
             c.data = Put(indices, size_t(count) * 2);
         }
+        // the vertices each stream's draw reads, copied now: the title may refill the buffer before the draw is taken
+        for (size_t i = 0; i < s.streams.size(); i++)
+            if (s.streams[i].vb && !Snapshot(uint32_t(i), s.streams[i], start, count, indices, s.base_vertex)) Use(s.streams[i].vb);
         cur_->cmds.push_back(c);
         for (uint32_t tex : s.textures) Use(tex);
         for (uint32_t pal : s.palettes) Use(pal);
-        for (const auto& st : s.streams) Use(st.vb);
         Use(s.rt.header);
         Use(s.zs.header);
         Written(s.rt);
@@ -373,6 +375,33 @@ private:
     }
 
     // resources by guest header: the batch that last read them
+    // false: not copied (no stride, or too big), so the buffer is waited on like before
+    bool Snapshot(uint32_t stream, const State::Stream& st, uint32_t start, uint32_t count, const uint8_t* indices, uint32_t base) {
+        constexpr size_t kMaxSnapshot = 4u << 20;
+        if (!st.stride || !count) return false;
+        uint32_t lo = start, hi = start + count - 1;
+        if (indices) {
+            uint16_t l = 0xFFFF, h = 0;
+            for (uint32_t i = 0; i < count; i++) {
+                uint16_t v;
+                std::memcpy(&v, indices + size_t(i) * 2, 2);
+                l = std::min(l, v);
+                h = std::max(h, v);
+            }
+            lo = l + base;
+            hi = h + base;
+        }
+        size_t first = size_t(lo) * st.stride, bytes = (size_t(hi) - lo + 1) * st.stride;
+        if (bytes > kMaxSnapshot) return false;
+        uint32_t data = ::mem::VirtualFromPhysical(kernel::R32(st.vb + 4)) + st.offset;
+        Cmd c{Op::Snap};
+        c.a = stream;
+        c.b = uint32_t(first);
+        c.data = Put(kernel::HostPtr(data + uint32_t(first)), bytes);
+        cur_->cmds.push_back(c);
+        return true;
+    }
+
     void Use(uint32_t header) {
         if (!header) return;
         Recent<uint64_t>& r = recent_uses_[(header >> 3) & 63];
@@ -458,7 +487,11 @@ private:
                 if (c.ps >= 0) state_.ps = b.ps[size_t(c.ps)];
                 break;
             }
-            case Op::Draw: inner_->Draw(state_, c.a, c.b, c.c, c.d ? data : nullptr); break;
+            case Op::Snap: state_.streams[c.a].snap = data - c.b; break;  // vertex 0's place, only the draw's range copied
+            case Op::Draw:
+                inner_->Draw(state_, c.a, c.b, c.c, c.d ? data : nullptr);
+                for (auto& st : state_.streams) st.snap = nullptr;
+                break;
             case Op::Clear: inner_->Clear(state_, c.a, c.size ? data : nullptr, c.b, c.c, c.f, c.d); break;
             case Op::Copy: inner_->Copy(c.s1, c.s2, c.a, c.b, c.c, c.f, c.g); break;
             case Op::Present: inner_->Present(c.s1); break;

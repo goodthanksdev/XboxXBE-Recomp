@@ -167,6 +167,9 @@ struct State {
         uint32_t vb = 0;  // guest D3DVertexBuffer
         uint32_t stride = 0;
         uint32_t offset = 0;  // bytes into the buffer (SetVertexShaderInput)
+        // set on the render thread for one draw: a copy of the vertices it reads, taken when the title queued it (vertex 0's
+        // address; only the draw's own range is there), so the title can refill the buffer without waiting
+        const uint8_t* snap = nullptr;
     };
     std::array<Stream, 16> streams{};
     uint32_t index_buffer = 0, index_data = 0, base_vertex = 0;

@@ -1423,6 +1423,54 @@ void D3D12Backend::Blit(ID3D12Resource* src, DXGI_FORMAT fmt, const float uvrect
     DrawFullScreen(EnsureBlitPipeline(o.rtv, o.over), cb.gpu, slot, si);
 }
 
+// Compiled shaders kept on disk (cache/shaders.bin beside the program): each one is compiled once per PC, not again
+// every run the first time it shows up, which was a stutter. Records: hash (u64), size (u32), the bytecode.
+namespace shader_cache {
+constexpr uint64_t kSalt = 0x5348414445523031ull;  // "SHADER01": bump when the compiler or its flags change
+std::mutex lock;
+std::unordered_map<uint64_t, std::vector<uint8_t>> loaded;
+bool read = false;
+std::filesystem::path File() { return app::ExeDir() / "cache" / "shaders.bin"; }
+void Load() {
+    read = true;
+    std::FILE* f = _wfopen(File().c_str(), L"rb");
+    if (!f) return;
+    for (;;) {
+        uint64_t h;
+        uint32_t n;
+        if (std::fread(&h, 8, 1, f) != 1 || std::fread(&n, 4, 1, f) != 1 || n > (64u << 20)) break;
+        std::vector<uint8_t> b(n);
+        if (std::fread(b.data(), 1, n, f) != n) break;
+        loaded[h] = std::move(b);
+    }
+    std::fclose(f);
+    LOGI("d3d12: %zu compiled shaders from the disk cache", loaded.size());
+}
+ID3DBlob* Find(uint64_t h) {
+    std::lock_guard g(lock);
+    if (!read) Load();
+    auto it = loaded.find(h);
+    if (it == loaded.end()) return nullptr;
+    ID3DBlob* b = nullptr;
+    if (FAILED(D3DCreateBlob(it->second.size(), &b))) return nullptr;
+    std::memcpy(b->GetBufferPointer(), it->second.data(), it->second.size());
+    loaded.erase(it);
+    return b;
+}
+void Save(uint64_t h, ID3DBlob* code) {
+    std::lock_guard g(lock);
+    std::error_code ec;
+    std::filesystem::create_directories(File().parent_path(), ec);
+    std::FILE* f = _wfopen(File().c_str(), L"ab");
+    if (!f) return;
+    uint32_t n = uint32_t(code->GetBufferSize());
+    std::fwrite(&h, 8, 1, f);
+    std::fwrite(&n, 4, 1, f);
+    std::fwrite(code->GetBufferPointer(), 1, n, f);
+    std::fclose(f);
+}
+}  // namespace shader_cache
+
 ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const char* profile, uint64_t& hash) {
     // one source can hold several entry points
     uint64_t profile_seed = Hash(profile, std::strlen(profile));
@@ -1430,6 +1478,11 @@ ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const
     hash = Hash(src.data(), src.size(), entry_seed);
     auto it = blobs_.find(hash);
     if (it != blobs_.end()) return it->second.Get();
+    const uint64_t disk = hash ^ shader_cache::kSalt;
+    if (ID3DBlob* cached = shader_cache::Find(disk)) {
+        blobs_[hash].Attach(cached);
+        return cached;
+    }
     ComPtr<ID3DBlob> code;
     ComPtr<ID3DBlob> err;
     PerfScope perf_compile{g_perf.compile};
@@ -1443,6 +1496,7 @@ ID3DBlob* D3D12Backend::Compile(const std::string& src, const char* entry, const
         return nullptr;
     }
     blobs_[hash] = code;
+    shader_cache::Save(disk, code.Get());
     return code.Get();
 }
 
