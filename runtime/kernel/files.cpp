@@ -1,3 +1,7 @@
+#define NOMINMAX
+#include <windows.h>
+#undef CreateSymbolicLink  // windows.h names its own; the kernel has one
+
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -5,6 +9,9 @@
 #include <filesystem>
 #include <fstream>
 #include <map>
+#include <mutex>
+#include <set>
+#include <optional>
 
 #include "kernel/disc.h"
 #include "kernel/kernel.h"
@@ -239,6 +246,27 @@ struct Target {
     const Disc::Entry* entry = nullptr;  // there: the file or folder, null when missing
 };
 
+// Mods: a file in the "mods" folder beside the program, at the path it has on the disc (mods\media\intro.dds for
+// D:\media\intro.dds), is read instead of the game's own. Files only: a folder listing still shows the disc's.
+std::optional<fs::path> ModFile(const std::vector<std::string>& parts) {
+    static const fs::path dir = [] {
+        wchar_t exe[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        fs::path d = fs::path(exe).parent_path() / "mods";
+        std::error_code ec;
+        return fs::is_directory(d, ec) ? d : fs::path();
+    }();
+    if (dir.empty() || parts.empty()) return std::nullopt;
+    fs::path f = MatchCase(dir, parts);
+    std::error_code ec;
+    if (!fs::is_regular_file(f, ec)) return std::nullopt;
+    static std::mutex logged_lock;
+    static std::set<std::string> logged;
+    std::lock_guard g(logged_lock);
+    if (logged.insert(f.string()).second) LOGI("files: mod %s", f.string().c_str());
+    return f;
+}
+
 Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     std::string p = Normalize(xbox_path);
     if (root_handle) {
@@ -276,8 +304,10 @@ Target Resolve(const std::string& xbox_path, uint32_t root_handle) {
     // no Xbox name holds ':', and fs::path would take "D:" as a host drive
     for (auto& part : parts)
         if (part.find(':') != std::string::npos) return {};
-    if (best->first == kCdRom)
+    if (best->first == kCdRom) {
+        if (auto mod = ModFile(parts)) return {mod->string()};
         if (const Disc* disc = MountedDisc()) return {{}, true, disc->Find(parts)};
+    }
     return {MatchCase(best->second, parts).string()};
 }
 
