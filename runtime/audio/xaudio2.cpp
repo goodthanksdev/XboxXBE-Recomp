@@ -37,6 +37,8 @@ std::atomic<bool> g_surround{false};
 std::atomic<bool> g_mono{false};
 std::atomic<uint32_t> g_mode{kOutputAuto};
 std::atomic<bool> g_mode_changed{false};
+std::atomic<uint32_t> g_volume{100};  // master volume, percent
+std::atomic<bool> g_volume_changed{true};
 
 // XAudio2 stops for good once its device goes (unplugged, an HDMI display changing mode)
 struct DeviceWatch : IXAudio2EngineCallback {
@@ -205,6 +207,7 @@ void Pump(Output& out, const std::function<void(float*, uint32_t)>& render) {
     for (uint32_t n = 0;;) {
         if (g_device.lost) return;
         if (g_mode_changed.exchange(false)) ApplyMatrix(out);
+        if (g_volume_changed.exchange(false)) out.voice->SetVolume(g_volume / 100.0f);
         XAUDIO2_VOICE_STATE st;
         out.voice->GetState(&st, XAUDIO2_VOICE_NOSAMPLESPLAYED);
         // a starved voice crackles: queue one buffer more each time, up to kMaxQueued
@@ -231,6 +234,10 @@ void Pump(Output& out, const std::function<void(float*, uint32_t)>& render) {
 bool IsSurround() { return g_surround; }
 
 bool IsMono() { return g_mono; }
+
+void SetVolume(uint32_t percent) {
+    if (g_volume.exchange(std::min<uint32_t>(percent, 100)) != percent) g_volume_changed = true;
+}
 
 void SetOutputMode(uint32_t mode) {
     if (g_mode.exchange(mode) != mode) g_mode_changed = true;

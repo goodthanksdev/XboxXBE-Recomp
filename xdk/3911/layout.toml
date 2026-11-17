@@ -1,0 +1,63 @@
+# XDK 3911 library data layouts (D3D8 3948, DSOUND 3925), read from Star Wars Obi-Wan (default.xbe). Unproven fields
+# are noted; the miniport block sits at +0x235C (VBlankEvent - 0x194, DisplayFlags - 0x1B4) and keeps 4831's offsets.
+[layout]
+# D3D8 CDevice: the static device at D3D_Device (Direct3D_CreateDevice 0x3681B0 points D3D_pDevice at it)
+CDevice_Push              = 0x0    # D3DDevice_SetTexture 0x36A175 stores the push pointer, 0x370940 compares it with +4
+CDevice_PushThreshold     = 0x4    # 0x370946 compares the push pointer with it, calls MakeSpace 0x3706A0
+CDevice_BaseVertex        = 0x478  # D3DDevice_SetIndices 0x36A2C9 stores BaseVertexIndex
+CDevice_IndexBuffer       = 0x47C  # D3DDevice_SetIndices 0x36A29A reads the old one, 0x36A2C2 stores the new one
+CDevice_ZScale            = 0x4F8  # the viewport update 0x36D4C7 scales MaxZ by it
+CDevice_SuperSampleX      = 0x500  # the viewport update 0x36D477
+CDevice_SuperSampleY      = 0x504  # the viewport update 0x36D49D
+CDevice_Transforms        = 0x880  # D3DDevice_SetTransform 0x369341: (type + 0x22) * 64
+CDevice_Textures          = 0xBA0  # D3DDevice_SetTexture 0x36A11E reads, 0x36A153 stores [stage]
+CDevice_Palettes          = 0xBB0  # unproven: Textures + 0x10 as in 4831, 5558 and 5849 (no SetPalette in this image)
+CDevice_RenderTarget      = 0x40C  # D3DDevice_GetRenderTarget 0x369CA5 returns it
+CDevice_Depth             = 0x410  # D3DDevice_GetDepthStencilSurface 0x369CC5 returns it
+# the frame buffers are surfaces inside the device, 24 bytes each: back, front, a second back
+# (D3DDevice_GetBackBuffer 0x369A1E: +0x2150 + 24 * (index -1 -> 1, 0 -> 0, n -> n + 1)); no pointer fields; then the depth buffer at +0x2198
+# (D3D_InitDefaultState 0x36F640 sets ZEnable from it)
+CDevice_FrameSurfaces     = 0x2150
+CDevice_SwapCount         = 0x2B60 # D3DDevice_Present 0x36AFDC increments it
+CDevice_Size              = 0x2B90 # D3D_pDevice follows the device at 0x379C30; the init's last field is +0x2B8C
+CDevice_Flags             = 0xC    # Direct3D_CreateDevice 0x3681A8 ors BehaviorFlags & 0x10 into it
+CDevice_Time              = 0x1C   # D3D_SetFence 0x37051F pushes it
+CDevice_PixelShader       = 0x414  # D3DDevice_SetPixelShader stores the handle (XbSymbolDatabase OFFSET_D3DDevice__m_PixelShader)
+CDevice_VertexShader      = 0x470
+CDevice_VertexShaderHandle = 0x474 # D3DDevice_SetVertexShader 0x36C5EC stores the handle; D3D_RecordStateBlock 0x3676DE records it
+CDevice_Material          = 0xB18  # D3D_RecordStateBlock 0x367945 copies 17 dwords; the back material follows at +0xB5C  # D3DDevice_SetVertexShader (XbSymbolDatabase D3DDevice__m_VertexShader_OFFSET)
+CDevice_BackBufferScale   = 0x510  # unproven: ZScale + 0x18 as in 4831
+CDevice_Viewport          = 0xB00  # D3DDevice_SetViewport 0x369DED to 0x369E11 stores X, Y, Width, Height, MinZ, MaxZ
+# CDevice_ScreenSpaceOffset: unknown. Not Viewport + 0x18 as in 4831: +0xB18 is the material (D3D_RecordStateBlock 0x367945 copies 17 dwords), +0xB5C the back material
+CDevice_VBlankCallback    = 0x24EC # miniport + 0x190
+CDevice_VBlankEvent       = 0x24F0 # D3DDevice_BlockUntilVerticalBlank 0x36957B clears its SignalState, waits on it
+CDevice_DisplayFlags      = 0x2510 # D3DDevice_GetDisplayMode 0x3696ED reads it (0x400000 = 60 Hz)
+CDevice_VBlankCount       = 0x251C # miniport + 0x1C0
+CDevice_Field             = 0x252C # miniport + 0x1D0
+CDevice_GammaRamps        = 0x2538 # miniport + 0x1DC
+CDevice_GammaPending      = 0x2B38 # miniport + 0x7DC
+# render states numbered as 3911: D3DDevice_SetRenderStateNotInline 0x3682C5 simple below 0x52, 0x3682E9 deferred below 0x74;
+# complex PSTextureModes 116 (0x37A038), VertexBlend 117, FillMode 119, NormalizeNormals 122, StencilEnable 124, CullMode 127,
+# LogicOp 130, EdgeAntiAlias 131, MultiSampleType 134, ShadowFunc 135, RopZCmpAlwaysRead 141 ... DoNotCullUncompressed 143
+RenderState_Numbering     = 3911
+# texture stage states numbered as 3911: D3D_InitDefaultState 0x36F686 sets stage 0 type 0 to 4 (MODULATE) and 0x36F691 type 4
+# to 2 (SELECTARG1); its defaults table 0x376ABC reads COLOROP, ARG0-2, ALPHAOP, ARG0-2, RESULTARG, TRANSFORMFLAGS, then ADDRESSU...
+TextureState_Numbering    = 3911
+# D3D8 globals (the dirty flags are the device's +0x8: D3D_DirtyFlags is D3D_Device + 8)
+DirtyFlags_Texture        = 0x408  # D3DDevice_SetTexture 0x36A182 ors it into the device's +0x8
+TextureState_Stage        = 32     # D3DDevice_SetTextureStageStateNotInline 0x3689E3: [stage * 32 + type] dwords
+Stream_Size               = 12     # D3DDevice_SetStreamSource 0x36C1FB indexes the stream table by n * 12
+Stream_Stride             = 0x0    # D3DDevice_SetStreamSource 0x36C231 compares Stride with it
+Stream_Buffer             = 0x8    # D3DDevice_SetStreamSource 0x36C201 reads the vertex buffer
+PixelShader_Definition    = 0x8    # unproven, as in 4831
+# DSOUND (effects image fields unproven, as in 4831)
+MixBins_Mask               = 1     # SetMixBins takes a bin mask: the game passes 0x3F (0x2CC40F); 0x3AB30D compares it with the voice's +0x20
+CDirectSoundStream_Vtable  = 0x0   # CDirectSoundStream constructor 0x3AB9DB stores the first vtable
+CDirectSoundStream_Vtable2 = 0x4   # CDirectSoundStream constructor 0x3AB9D4 stores the second vtable
+EffectsImage_Skip0         = 0x804
+EffectsImage_Skip1         = 0x80C
+EffectsImage_Desc          = 0x818
+# XAPI XPP device type record
+XPP_Current               = 0x0    # XGetDevices 0x3B4F28 returns it
+XPP_Changed               = 0x4    # XGetDevices 0x3B4F2A clears it
+XPP_Previous              = 0x8    # XGetDevices 0x3B4F30 copies Current into it

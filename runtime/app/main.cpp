@@ -19,6 +19,7 @@
 #include <backends/imgui_impl_win32.h>
 
 #include "app/app.h"
+#include "app/menu.h"
 #include "core/input.h"
 #include "core/keys.h"
 #include "core/log.h"
@@ -126,6 +127,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         if (ImGui::GetCurrentContext() && ImGui_ImplWin32_WndProcHandler(hwnd, msg, wp, lp)) return 1;
     }
     if (input::KeyMessage(msg, wp, lp)) return 0;  // a key being bound
+    if (intptr_t result = 0; menu::Message(hwnd, msg, wp, lp, &result)) return result;
     if (intptr_t result = 0; kGame.message && kGame.message(hwnd, msg, wp, lp, &result)) return result;
     switch (msg) {
         case WM_KEYDOWN:
@@ -285,6 +287,7 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     ImGuiIO& io = ImGui::GetIO();
     io.IniFilename = nullptr;
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard | ImGuiConfigFlags_NavEnableGamepad;
+    menu::Fonts();
     ImGui_ImplWin32_Init(app::g_hwnd);
 
     input::Init();

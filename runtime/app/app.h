@@ -27,7 +27,9 @@ struct Settings {
     bool dump_textures = false;      // each texture once into textures\dumps\ beside the exe
     uint32_t texture_dump_format = 0;  // 0 PNG, 1 DDS
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
-    bool aspect_4_3 = false;           // tell the game it's on a 4:3 TV and show 4:3 (read at start)
+    bool aspect_4_3 = false;
+    uint32_t volume = 100;             // master volume, percent
+    bool show_fps = false;             // a frame rate counter in the corner           // tell the game it's on a 4:3 TV and show 4:3 (read at start)
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
 };
 
@@ -87,6 +89,14 @@ struct Option {  // a setting in the settings file, flag or value
     bool* flag;
     uint32_t* value;
 };
+// a game switch in the options menu (app/menu.cpp); keep it in the settings file with an Option
+struct MenuItem {
+    const char* tab;   // its tab, by name: "Game", "Cheats"...
+    const char* name;
+    const char* help;  // a line under the name
+    bool* flag;
+    const char* note;  // shown after the value while on, e.g. "from the next race"; may be null
+};
 struct GameInfo {
     const wchar_t* title;        // window and splash
     const wchar_t* short_title;  // message boxes
@@ -111,6 +121,10 @@ struct GameInfo {
     // xbe file name, SHA-1: other releases the executable runs, each from its own [xbe] named config
     std::vector<std::pair<const char*, const char*>> releases;
     std::vector<KeyControl> keys;  // keyboard play into the first port (core/keys.h); none: no keyboard
+    // the options menu: its header and the game's own switches
+    const char* version = nullptr;  // "0.1.0"
+    const char* tier = nullptr;     // "alpha", "beta" or "complete"
+    std::vector<MenuItem> menu;
 };
 extern const GameInfo kGame;
 

@@ -9,6 +9,7 @@
 #include <SDL3/SDL.h>
 
 #include "app/app.h"
+#include "app/menu.h"
 #include "core/keys.h"
 #include "core/log.h"
 
@@ -128,6 +129,7 @@ Pad Poll(int port) {
         }
     }
     if (app::kGame.pad) app::kGame.pad(port, p);
+    menu::Pad(port, p);
     AddKeys(port, p);
     return p;
 }

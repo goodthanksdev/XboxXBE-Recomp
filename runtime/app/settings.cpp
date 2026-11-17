@@ -57,6 +57,8 @@ void Load() {
     s.join_ip = t["join_ip"].value_or(s.join_ip);
     s.aspect_4_3 = t["aspect_4_3"].value_or(s.aspect_4_3);
     s.audio_output = std::min(t["audio_output"].value_or(s.audio_output), audio::kOutputMono);
+    s.volume = std::min(t["volume"].value_or(s.volume), 100u);
+    s.show_fps = t["show_fps"].value_or(s.show_fps);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
@@ -66,6 +68,7 @@ void Load() {
             if (auto v = (*keys)[input::KeyControlId(i)].value<std::string>()) input::SetKeysText(i, *v);
     if (kGame.load) kGame.load(&t);
     audio::SetOutputMode(s.audio_output);
+    audio::SetVolume(s.volume);
 }
 
 namespace {
@@ -84,7 +87,9 @@ toml::table Table() {
                   {"texture_dump_format", int64_t(s.texture_dump_format)},
                   {"join_ip", s.join_ip},
                   {"aspect_4_3", s.aspect_4_3},
-                  {"audio_output", int64_t(s.audio_output)}};
+                  {"audio_output", int64_t(s.audio_output)},
+                  {"volume", int64_t(s.volume)},
+                  {"show_fps", s.show_fps}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));

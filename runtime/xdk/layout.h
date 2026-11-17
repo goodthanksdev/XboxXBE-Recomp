@@ -84,6 +84,31 @@ constexpr bool AllKnown(const LayoutKey (&keys)[N]) {
 #ifndef XDK_CDevice_BackBuffer
 #define XDK_CDevice_BackBuffer 0xFFFFFFFFu
 #endif
+// early XDKs (3911): the frame buffers are surfaces inside the device, 24 bytes each (back, front, second back),
+// instead of BackBuffer and FrontBuffer pointers
+// early XDKs (3911): mix bins are a DWORD mask of bins, not a DSMIXBINS pointer
+// the title's D3DRS numbering when it is not 4831's: 3911 has fewer deferred and complex states
+#ifndef XDK_RenderState_Numbering
+#define XDK_RenderState_Numbering 0xFFFFFFFFu
+#endif
+// the title's D3DTSS numbering when it is not 4831's: 3911 starts with COLOROP
+#ifndef XDK_TextureState_Numbering
+#define XDK_TextureState_Numbering 0xFFFFFFFFu
+#endif
+// device fields the runtime keeps as the library would, for library code that reads them (state blocks):
+// the vertex shader handle beside CDevice_VertexShader's object, the material
+#ifndef XDK_CDevice_VertexShaderHandle
+#define XDK_CDevice_VertexShaderHandle 0xFFFFFFFFu
+#endif
+#ifndef XDK_CDevice_Material
+#define XDK_CDevice_Material 0xFFFFFFFFu
+#endif
+#ifndef XDK_MixBins_Mask
+#define XDK_MixBins_Mask 0xFFFFFFFFu
+#endif
+#ifndef XDK_CDevice_FrameSurfaces
+#define XDK_CDevice_FrameSurfaces 0xFFFFFFFFu
+#endif
 #ifndef XDK_CDevice_FrontBuffer
 #define XDK_CDevice_FrontBuffer 0xFFFFFFFFu
 #endif

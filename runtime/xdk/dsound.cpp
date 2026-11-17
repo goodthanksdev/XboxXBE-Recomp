@@ -787,10 +787,20 @@ void ReadFormat(Voice& v, uint32_t wfx) {
     if (v.tag != 1 && v.tag != 0x69) LOG_FIRST(8, "dsound: format tag %X not supported", v.tag);
 }
 
-// DSMIXBINS: the voice's bins and their volumes
+// DSMIXBINS: the voice's bins and their volumes. Early XDKs (3911) pass a mask of bins instead, each at full volume.
 void SetBins(Voice& v, uint32_t mixbins) {
     v.nbins = 0;  // none listed: front left and right
     if (!mixbins) return;
+    if (XDK_MixBins_Mask != xdk::kUnknown) {
+        uint32_t n = 0;
+        for (uint32_t bin = 0; bin < 32 && n < 8; bin++)
+            if (mixbins >> bin & 1) {
+                v.bin[n++] = uint8_t(bin);
+                v.bin_mb[bin] = 0;
+            }
+        v.nbins = uint8_t(n);
+        return;
+    }
     uint32_t n = std::min<uint32_t>(R32(mixbins), 8), pairs = R32(mixbins + 4);
     for (uint32_t i = 0; i < n; i++) {
         v.bin[i] = R32(pairs + i * 8) & 31;

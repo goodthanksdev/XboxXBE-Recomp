@@ -30,6 +30,7 @@
 #include <backends/imgui_impl_win32.h>
 
 #include "app/app.h"
+#include "app/menu.h"
 #include "core/diag.h"
 #include "core/log.h"
 #include "gpu/backend.h"
@@ -2229,6 +2230,7 @@ void FillFogConstants(const State& s, bool vertex_program, DrawConstants& c) {
 }
 
 void FillSurfaceConstants(const State& s, GuestExtent size, DrawConstants& c) {
+    std::memcpy(c.vdef, s.vdef.data(), sizeof(c.vdef));
     c.surf[0] = float(size.w);
     c.surf[1] = float(size.h);
     c.surf[2] = 1.0f / s.zscale;
@@ -3260,6 +3262,7 @@ void D3D12Backend::RenderUi() {
     ImGui_ImplWin32_NewFrame();
     ImGui::NewFrame();
     if (app::kGame.ui) app::kGame.ui(fps_);
+    menu::Ui(fps_);
     ImGui::Render();
     ID3D12DescriptorHeap* uh[] = {ui_heap_.Get()};
     cl_->SetDescriptorHeaps(1, uh);

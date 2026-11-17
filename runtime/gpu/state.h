@@ -166,11 +166,19 @@ struct State {
     struct Stream {
         uint32_t vb = 0;  // guest D3DVertexBuffer
         uint32_t stride = 0;
+        uint32_t offset = 0;  // bytes into the buffer (SetVertexShaderInput)
     };
     std::array<Stream, 16> streams{};
     uint32_t index_buffer = 0, index_data = 0, base_vertex = 0;
     uint32_t vs_handle = 0;  // programmable when bit 0 set, otherwise an FVF
     std::shared_ptr<VertexShader> vs;
+    // an input no stream feeds reads the last SetVertexData value (the hardware's attribute registers); diffuse starts white
+    std::array<std::array<float, 4>, 16> vdef = [] {
+        std::array<std::array<float, 4>, 16> d{};
+        for (auto& v : d) v = {0, 0, 0, 1};
+        d[3] = d[4] = {1, 1, 1, 1};  // Kung Fu Chaos lights its fighters by an input 4 it never sets: white
+        return d;
+    }();
     std::shared_ptr<PixelShader> ps;
     std::array<std::array<float, 4>, 192> vsc{};  // hardware order: D3D register + 96
     std::array<std::array<float, 4>, 16> psc{};
