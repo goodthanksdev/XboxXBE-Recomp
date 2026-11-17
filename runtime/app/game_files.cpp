@@ -70,33 +70,46 @@ std::string Sha1(const std::vector<uint8_t>& data) {
     return hex;
 }
 
-bool FindGame(GameFiles& game) {
-    fs::path assets = FindAssets();
-    std::vector<fs::path> isos;
+bool FindGame(GameFiles& game, bool ask, GameFound* found) {
+    // where to look: the disc image or folder picked in the setup, then assets
+    std::vector<fs::path> dirs, isos;
     std::error_code ec;
-    if (!assets.empty())
-        for (auto& e : fs::directory_iterator(assets, ec)) {
-            std::wstring ext = e.path().extension().wstring();
-            std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c) { return wchar_t(std::towlower(c)); });
-            if (ext == L".iso" && e.is_regular_file(ec)) isos.push_back(e.path());
-        }
-    std::sort(isos.begin(), isos.end());
+    auto is_iso = [](const fs::path& p) {
+        std::wstring ext = p.extension().wstring();
+        std::transform(ext.begin(), ext.end(), ext.begin(), [](wchar_t c) { return wchar_t(std::towlower(c)); });
+        return ext == L".iso";
+    };
+    if (!Get().game_path.empty()) {
+        fs::path chosen = fs::u8path(Get().game_path);
+        if (fs::is_directory(chosen, ec)) dirs.push_back(chosen);
+        else if (is_iso(chosen) && fs::is_regular_file(chosen, ec)) isos.push_back(chosen);
+    }
+    if (fs::path assets = FindAssets(); !assets.empty()) dirs.push_back(assets);
+    for (const fs::path& dir : dirs) {
+        std::vector<fs::path> here;
+        for (auto& e : fs::directory_iterator(dir, ec))
+            if (is_iso(e.path()) && e.is_regular_file(ec)) here.push_back(e.path());
+        std::sort(here.begin(), here.end());
+        isos.insert(isos.end(), here.begin(), here.end());
+    }
 
     // the first copy with this xbe wins, the extracted files before any image; another release is kept to offer
     GameFiles other;
     std::unique_ptr<kernel::Disc> other_disc;
     fs::path other_name;
-    auto consider = [&](const fs::path& name, std::vector<uint8_t> xbe, std::unique_ptr<kernel::Disc> disc) {
+    auto consider = [&](const fs::path& dir, const fs::path& name, std::vector<uint8_t> xbe,
+                        std::unique_ptr<kernel::Disc> disc) {
         std::string sha = Sha1(xbe);
         bool match = Runs(sha);
         LOGR("Game: %s in %s, sha1 %s%s", IMAGE_XBE, name.string().c_str(), sha.c_str(), match ? "" : ", another release");
         if (match) {
-            game = {assets, std::move(xbe)};
+            game = {dir, std::move(xbe)};
             kernel::MountDisc(std::move(disc));
+            if (found) *found = {name, false};
             return true;
         }
         if (other_name.empty()) {
-            other = {assets, std::move(xbe)};
+            other = {dir, std::move(xbe)};
             other_disc = std::move(disc);
             other_name = name;
         }
@@ -104,7 +117,8 @@ bool FindGame(GameFiles& game) {
     };
 
     std::vector<uint8_t> xbe;
-    if (!assets.empty() && ReadHostFile(assets / IMAGE_XBE, xbe) && consider(assets, std::move(xbe), nullptr)) return true;
+    for (const fs::path& dir : dirs)
+        if (ReadHostFile(dir / IMAGE_XBE, xbe) && consider(dir, dir, std::move(xbe), nullptr)) return true;
     for (const fs::path& iso : isos) {
         auto disc = std::make_unique<kernel::Disc>();
         std::string error;
@@ -116,9 +130,13 @@ bool FindGame(GameFiles& game) {
             LOGW("game: %s has no %s", iso.string().c_str(), IMAGE_XBE);
             continue;
         }
-        if (consider(iso, std::move(xbe), std::move(disc))) return true;
+        if (consider(iso.parent_path(), iso, std::move(xbe), std::move(disc))) return true;
     }
 
+    if (!ask) {
+        if (found) *found = {other_name, !other_name.empty()};
+        return false;
+    }
     if (other_name.empty()) {
         MessageBoxW(nullptr, kGame.missing, kGame.short_title, MB_ICONERROR);
         return false;

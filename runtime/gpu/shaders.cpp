@@ -56,6 +56,7 @@ const char* kCommonTail = R"(    float4 spread[4];
     float4 rtshift;
     float4 zparams;
     float4 vdef[16];
+    float4 wide;
 };
 )";
 
@@ -234,6 +235,8 @@ const char* kVsEpilogue = R"(
     q.z = p.z * surf.z;
     q.xyz *= p.w;
     q.w = p.w;
+    // the widescreen hack: perspective (w not 1) squeezed to the 4:3 frame's share of the picture, flat 2D kept
+    if (abs(p.w - 1) > 1e-4) q.x *= wide.x;
     // w - z of one vector's dp4s as one dot keeps the near plane's offset; then the viewport's z scale and offset
     precise float wz = q.w - q.z;
     if (all(clip_zv == clip_wv)) {
@@ -911,6 +914,8 @@ std::string FixedVertexHlsl(uint16_t regs, bool pretransformed, uint64_t decode,
     if (pretransformed) return s + kVsEpilogue;
     s += R"(
     VOut o;
+    // the widescreen hack, as for programmable shaders: perspective squeezed, flat 2D kept
+    if (abs(cp.w - 1) > 1e-4) cp.x *= wide.x;
     // like the pretransformed ones, target sized passes end half a console pixel short of the far edges
     float2 sp = (float2(cp.x, -cp.y) / cp.w + 1) * 0.5 * surf.xy;
     if (surf.w == 0 && abs(sp.x - (surf.x - 0.5)) < 1e-3) cp.x = cp.w;

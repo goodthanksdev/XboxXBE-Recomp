@@ -32,6 +32,7 @@ bool KeyMessage(uint32_t msg, uintptr_t wp, intptr_t lp);
 // a controller on port 0 was used: the keys rest for a while, so a controller that also types (Steam Input's desktop
 // layout) doesn't press both
 void ControllerUsed();
+void FreeCursor();  // any thread: the cursor out of the game's hold (the options open, the window in the background)
 // what the held keys press, added into port 0's pad
 void AddKeys(int port, Pad& p);
 

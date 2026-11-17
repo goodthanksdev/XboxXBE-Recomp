@@ -9,6 +9,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <functional>
 #include <map>
 #include <mutex>
@@ -69,6 +70,7 @@ std::string Utf8(uint32_t cp) {
 
 enum Cmd { kUp, kDown, kLeft, kRight, kAccept, kBack, kToggle, kClear, kTabPrev, kTabNext };
 std::atomic<bool> g_open{false};
+bool g_setup = false;  // the panel is the setup window's (SetupUi): one tab, it doesn't close
 std::mutex g_cmd_lock;
 std::vector<Cmd> g_cmds;
 const auto g_start = std::chrono::steady_clock::now();
@@ -92,6 +94,16 @@ struct Card {
     int key = -1;                        // a keyboard control
     bool wide = false;                   // both columns
     bool danger = false;                 // a button asked twice
+    bool primary = false;                // a button filled with the accent (the setup's Play)
+    std::function<bool()> enabled;       // a button that can be off for now
+    std::function<void(ImDrawList*, ImVec2, ImVec2, float)> draw;  // an info card's own drawing
+    float height = 0;                    // its row's height, 1080p pixels; 0: the usual
+    bool footer = false;                 // a button in the footer, always in view (the setup's Play)
+    // the mouse: a choice opens its list to pick from, a slider goes where it is clicked
+    std::function<std::vector<std::string>()> list;
+    std::function<int()> index;          // the list's current entry
+    std::function<void(int)> pick;
+    std::function<void(float)> set;      // a slider, 0 to 1
 };
 struct Tab {
     std::string name;
@@ -169,6 +181,12 @@ std::vector<Tab> Build() {
             app::Get().display_mode = app::DisplayMode((uint32_t(app::Get().display_mode) + 3 + dir) % 3);
             Changed(true);
         };
+        c.list = [] { return std::vector<std::string>{"Fullscreen", "Borderless", "Window"}; };
+        c.index = [] { return int(uint32_t(app::Get().display_mode) % 3); };
+        c.pick = [](int i) {
+            app::Get().display_mode = app::DisplayMode(i);
+            Changed(true);
+        };
         display.cards.push_back(c);
     }
     {
@@ -191,6 +209,28 @@ std::vector<Tab> Build() {
             s.height = i < 0 ? 0 : list[size_t(i)].h;
             Changed(true);
         };
+        // the list: the desktop, then the biggest modes first
+        c.list = [] {
+            std::vector<std::string> v{"Desktop"};
+            const auto& list = Resolutions();
+            for (auto r = list.rbegin(); r != list.rend(); ++r) v.push_back(std::to_string(r->w) + " x " + std::to_string(r->h));
+            return v;
+        };
+        c.index = [] {
+            const auto& s = app::Get();
+            const auto& list = Resolutions();
+            for (size_t k = 0; k < list.size(); k++)
+                if (list[k].w == s.width && list[k].h == s.height) return int(list.size() - k);
+            return 0;
+        };
+        c.pick = [](int i) {
+            auto& s = app::Get();
+            const auto& list = Resolutions();
+            bool desktop = i <= 0 || i > int(list.size());
+            s.width = desktop ? 0 : list[list.size() - size_t(i)].w;
+            s.height = desktop ? 0 : list[list.size() - size_t(i)].h;
+            Changed(true);
+        };
         display.cards.push_back(c);
     }
     {
@@ -203,11 +243,17 @@ std::vector<Tab> Build() {
             Cycle(app::Get().fps_cap, kCaps, dir);
             Changed();
         };
+        c.list = [] { return std::vector<std::string>{"30 fps", "60 fps", "Monitor", "Unlimited"}; };
+        c.index = [] { return int(std::find(kCaps.begin(), kCaps.end(), app::Get().fps_cap) - kCaps.begin()) % int(kCaps.size()); };
+        c.pick = [](int i) {
+            app::Get().fps_cap = kCaps[size_t(i) % kCaps.size()];
+            Changed();
+        };
         display.cards.push_back(c);
     }
     display.cards.push_back(Switch("VSync", "Waits for the screen: no tearing.", []() -> bool& { return app::Get().vsync; }));
     {
-        Card c{"Aspect ratio", "Widescreen, or the 4:3 of an old TV.", kChoice};
+        Card c{"Aspect ratio", app::kGame.widescreen ? "Widescreen, or the 4:3 of an old TV." : "Widescreen shows more of the world; the HUD stretches.", kChoice};
         c.value = [] {
             static const bool at_start = app::Get().aspect_4_3;  // read once, at start
             std::string v = app::Get().aspect_4_3 ? "4:3" : "Widescreen";
@@ -215,6 +261,12 @@ std::vector<Tab> Build() {
         };
         c.step = [](int) {
             app::Get().aspect_4_3 = !app::Get().aspect_4_3;
+            Changed();
+        };
+        c.list = [] { return std::vector<std::string>{"Widescreen", "4:3"}; };
+        c.index = [] { return app::Get().aspect_4_3 ? 1 : 0; };
+        c.pick = [](int i) {
+            app::Get().aspect_4_3 = i == 1;
             Changed();
         };
         display.cards.push_back(c);
@@ -238,6 +290,10 @@ std::vector<Tab> Build() {
             v = kPercents[i];
             Changed();
         };
+        c.set = [](float f) {
+            uint32_t v = kPercents[size_t(std::lround(f * float(kPercents.size() - 1)))];
+            if (v != app::Get().render_percent) app::Get().render_percent = v, Changed();
+        };
         graphics.cards.push_back(c);
     }
     {
@@ -248,6 +304,12 @@ std::vector<Tab> Build() {
         };
         c.step = [](int dir) {
             Cycle(app::Get().aniso, kAniso, dir);
+            Changed();
+        };
+        c.list = [] { return std::vector<std::string>{"As the game sets", "2x anisotropic", "4x anisotropic", "8x anisotropic", "16x anisotropic"}; };
+        c.index = [] { return int(std::find(kAniso.begin(), kAniso.end(), app::Get().aniso) - kAniso.begin()) % int(kAniso.size()); };
+        c.pick = [](int i) {
+            app::Get().aniso = kAniso[size_t(i) % kAniso.size()];
             Changed();
         };
         graphics.cards.push_back(c);
@@ -267,6 +329,10 @@ std::vector<Tab> Build() {
             audio::SetVolume(v);
             Changed();
         };
+        c.set = [](float f) {
+            uint32_t v = uint32_t(std::lround(f * 20)) * 5;
+            if (v != app::Get().volume) app::Get().volume = v, audio::SetVolume(v), Changed();
+        };
         sound.cards.push_back(c);
     }
     {
@@ -281,12 +347,37 @@ std::vector<Tab> Build() {
             audio::SetOutputMode(s.audio_output);
             Changed();
         };
+        c.list = [] { return std::vector<std::string>{"Automatic", "Stereo", "Surround 5.1", "Mono"}; };
+        c.index = [] { return int(app::Get().audio_output % 4); };
+        c.pick = [](int i) {
+            app::Get().audio_output = uint32_t(i);
+            audio::SetOutputMode(uint32_t(i));
+            Changed();
+        };
         sound.cards.push_back(c);
     }
     tabs.push_back(sound);
 
     if (input::KeyControls()) {
-        Tab keys{"Keyboard", 0xE765, {}};
+        bool mouse = app::kGame.mouse_stick != nullptr;  // mouse play, or a control on a mouse button by default
+        for (const app::KeyControl& k : app::kGame.keys)
+            mouse |= k.keys && (std::strstr(k.keys, "Mouse") || std::strstr(k.keys, "Scroll"));
+        Tab keys{mouse ? "Mouse & keys" : "Keyboard", 0xE765, {}};
+        if (app::kGame.mouse_stick) {
+            Card c{"Mouse sensitivity", std::string("How far the mouse moves the ") + (std::strcmp(app::kGame.mouse_stick, "left") ? "right" : "left") + " stick.", kSlider};
+            c.value = [] { return std::to_string(app::Get().mouse_sensitivity) + "%"; };
+            c.fill = [] { return (app::Get().mouse_sensitivity - 25) / 275.0f; };
+            c.step = [](int dir) {
+                auto& v = app::Get().mouse_sensitivity;
+                v = uint32_t(std::clamp(int(v) + dir * 25, 25, 300));
+                Changed();
+            };
+            c.set = [](float f) {
+                uint32_t v = 25 + uint32_t(std::lround(f * 11)) * 25;
+                if (v != app::Get().mouse_sensitivity) app::Get().mouse_sensitivity = v, Changed();
+            };
+            keys.cards.push_back(c);
+        }
         for (int i = 0; i < input::KeyControls(); i++) {
             Card c{input::KeyLabel(i), "", kKey};
             c.key = i;
@@ -322,6 +413,13 @@ std::vector<Tab> Build() {
         Card back{"Back to game", "Or press B, Esc or F1.", kButton};
         back.press = [] { g_open = false; };
         about.cards.push_back(back);
+        Card again{"Setup at next start", "Pick another copy of the game, or prepare it again.", kSwitch};
+        again.on = [] { return !app::Get().setup_done; };
+        again.step = [](int) {
+            app::Get().setup_done = !app::Get().setup_done;
+            Changed();
+        };
+        about.cards.push_back(again);
         Card reset{"Reset all settings", "Every option to its default.", kButton};
         reset.press = ResetAll;
         reset.danger = true;
@@ -337,6 +435,12 @@ std::vector<Tab> g_tabs;
 int g_tab = 0;
 std::vector<int> g_sel;  // per tab
 bool g_editing = false;  // left/right change the card's value
+int g_drop = -1;         // a choice card's list open for the mouse, by card
+int g_drop_first = 0;    // its first entry shown
+bool g_drop_fresh = false;
+ImVec2 g_drop_anchor_tl, g_drop_anchor_br;  // the card it opened from
+ImVec2 g_drop_tl, g_drop_br;                // the list, last frame
+int g_drag = -1;         // a slider held by the mouse
 int g_slot = 0;          // a key card's slot while editing
 double g_confirm = -10;  // a danger button asks again until then
 int g_confirm_card = -1;
@@ -380,9 +484,11 @@ void Move(int dr, int dc) {
 void SwitchTab(int dir) {
     g_tab = (g_tab + int(g_tabs.size()) + dir) % int(g_tabs.size());
     g_editing = false;
+    g_drop = -1;
 }
 
 void Activate(Card& c, int index) {
+    if (c.enabled && !c.enabled()) return;
     switch (c.kind) {
         case kSwitch: c.step(1); break;
         case kChoice:
@@ -406,21 +512,30 @@ void Activate(Card& c, int index) {
 
 void Run(Cmd cmd) {
     if (cmd == kToggle) {
+        if (g_setup) return;
         g_open = !g_open;
         g_editing = false;
         return;
     }
     if (!g_open || g_tabs.empty() || input::Capturing()) return;
+    if (g_drop >= 0) {  // keys and the pad close the mouse's list first
+        g_drop = -1;
+        if (cmd == kBack) return;
+    }
     Tab& t = g_tabs[size_t(g_tab)];
     int sel = g_sel[size_t(g_tab)];
     Card& c = t.cards[size_t(sel)];
     switch (cmd) {
         case kBack:
             if (g_editing) g_editing = false;
-            else g_open = false;
+            else if (!g_setup) g_open = false;
             break;
-        case kTabPrev: SwitchTab(-1); break;
-        case kTabNext: SwitchTab(1); break;
+        case kTabPrev:
+            if (!g_setup) SwitchTab(-1);
+            break;
+        case kTabNext:
+            if (!g_setup) SwitchTab(1);
+            break;
         case kUp:
         case kDown:
             g_editing = false;
@@ -608,8 +723,9 @@ void DrawPanel(double) {
     bool mouse = g_open && ImGui::IsWindowHovered() && !input::Capturing();
     bool click = mouse && ImGui::IsMouseClicked(ImGuiMouseButton_Left);
 
-    d->AddRectFilled({0, 0}, ds, Fade(Rgba(4, 8, 12, 175), a));
+    if (!g_setup) d->AddRectFilled({0, 0}, ds, Fade(Rgba(4, 8, 12, 175), a));
     float pw = std::min(U(1180), ds.x - U(60)), ph = std::min(U(700), ds.y - U(60));
+    if (g_setup) pw = ds.x - U(40), ph = ds.y - U(40);  // the window is the panel
     ImVec2 tl{(ds.x - pw) / 2, (ds.y - ph) / 2 + (1 - a) * U(26)};
     ImVec2 br{tl.x + pw, tl.y + ph};
     d->AddRectFilled({tl.x + U(4), tl.y + U(10)}, {br.x + U(4), br.y + U(14)}, Fade(Rgba(0, 0, 0, 90), a), U(22));
@@ -633,7 +749,7 @@ void DrawPanel(double) {
     }
     if (app::kGame.version) Text(d, g_body, U(17), {hx, tl.y + U(40)}, Fade(kSoft, a), std::string("v") + app::kGame.version);
     {
-        const char* close = "F1  /  Back + Start";
+        const char* close = g_setup ? "" : "F1  /  Back + Start";
         ImVec2 ts = TextSize(g_body, U(16), close);
         Text(d, g_body, U(16), {br.x - U(40) - ts.x, tl.y + U(42)}, Fade(Rgba(154, 166, 178, 150), a), close);
     }
@@ -668,9 +784,14 @@ void DrawPanel(double) {
     auto rows = Rows(tab);
     std::vector<std::pair<ImVec2, ImVec2>> rects(tab.cards.size());
     float y = 0;
+    int footer_card = -1;
     for (const auto& row : rows) {
+        if (tab.cards[size_t(row[0])].footer) {
+            footer_card = row[0];
+            continue;
+        }
         bool info = tab.cards[size_t(row[0])].kind == kInfo;
-        float h = info ? U(150) : ch;
+        float h = tab.cards[size_t(row[0])].height > 0 ? U(tab.cards[size_t(row[0])].height) : info ? U(150) : ch;
         for (size_t j = 0; j < row.size(); j++) {
             const Card& c = tab.cards[size_t(row[j])];
             float w = c.wide ? cw * 2 + gap : cw;
@@ -682,38 +803,59 @@ void DrawPanel(double) {
     float content = y - gap, view = area_b - area_t;
     // keep the selected card in view
     float want = g_scroll;
-    if (sel < int(rects.size())) {
+    if (sel < int(rects.size()) && sel != footer_card) {
         float st = rects[size_t(sel)].first.y, sb = rects[size_t(sel)].second.y;
         if (st - want < 0) want = st;
         if (sb - want > view) want = sb - view;
     }
-    if (mouse && io.MouseWheel != 0 && !g_editing && content > view) want -= io.MouseWheel * U(80);
+    if (mouse && io.MouseWheel != 0 && !g_editing && g_drop < 0 && content > view) want -= io.MouseWheel * U(80);
     want = std::clamp(want, 0.0f, std::max(0.0f, content - view));
     Ease(g_scroll, want, 14);
 
+    // with a list open a click is the list's: on an entry it picks, anywhere else it closes the list
+    bool drop_open = g_drop >= 0;
+    bool card_click = click && !drop_open;
+    bool opened_now = false;  // the click that opens a list doesn't close it
     d->PushClipRect({tl.x, area_t - U(6)}, {br.x, area_b + U(6)}, true);
     for (int i = 0; i < int(tab.cards.size()); i++) {
         Card& c = tab.cards[size_t(i)];
+        if (c.footer) continue;
         ImVec2 ctl{rects[size_t(i)].first.x, area_t + rects[size_t(i)].first.y - g_scroll};
         ImVec2 cbr{rects[size_t(i)].second.x, area_t + rects[size_t(i)].second.y - g_scroll};
         bool is_sel = i == sel;
-        bool hover = mouse && Focusable(c) && ImGui::IsMouseHoveringRect(ctl, cbr) && ctl.y < area_b && cbr.y > area_t;
+        bool hover = mouse && !drop_open && Focusable(c) && ImGui::IsMouseHoveringRect(ctl, cbr) && ctl.y < area_b && cbr.y > area_t;
         if (hover && mouse_moved && !g_editing && !input::Capturing()) sel = i, is_sel = true;
         d->AddRectFilled(ctl, cbr, Fade(is_sel ? kCardOn : kCard, a), U(14));
+        bool off = c.enabled && !c.enabled();
+        if (c.primary && !off) d->AddRectFilled(ctl, cbr, Fade(is_sel ? Rgba(70, 235, 216) : kAccent, a), U(14));
         if (c.kind == kInfo) {
-            InfoCard(d, ctl, cbr, a);
+            if (c.draw) c.draw(d, ctl, cbr, a);
+            else InfoCard(d, ctl, cbr, a);
             continue;
         }
         float left = Widget(d, c, g_tab * 1000 + i, ctl, cbr, is_sel, a);
         float tx2 = ctl.x + U(24), room = left - tx2 - U(16);
         bool danger = c.danger && c.kind == kButton;
-        Text(d, g_bold, U(20), {tx2, ctl.y + U(22)}, Fade(danger ? Rgba(255, 140, 120) : kText, a), Fit(g_bold, U(20), c.name, room));
+        // no help line: the name centred
+        float ny = c.help.empty() ? (ctl.y + cbr.y) / 2 - TextSize(g_bold, U(20), c.name).y / 2 : ctl.y + U(22);
+        ImU32 name_col = off ? Rgba(120, 130, 140) : c.primary ? Rgba(6, 30, 27) : danger ? Rgba(255, 140, 120) : kText;
+        Text(d, g_bold, U(20), {tx2, ny}, Fade(name_col, a), Fit(g_bold, U(20), c.name, room));
         if (!c.help.empty()) Text(d, g_body, U(16), {tx2, ctl.y + U(52)}, Fade(kSoft, a), Fit(g_body, U(16), c.help, room));
         // mouse: a click flips or presses; on a value the left part steps back, the rest forward; the wheel steps
-        if (hover && click) {
+        float track_l = cbr.x - U(22) - U(170), track_r = cbr.x - U(22);  // a slider's track (Widget)
+        if (hover && card_click) {
             sel = i;
             float mx = io.MousePos.x;
-            if (c.kind == kChoice || c.kind == kSlider) {
+            if (c.kind == kChoice && c.list && !(c.enabled && !c.enabled())) {
+                g_editing = false;
+                g_drop = i;
+                g_drop_fresh = true;
+                opened_now = true;
+                g_drop_anchor_tl = ctl, g_drop_anchor_br = cbr;
+            } else if (c.kind == kSlider && c.set && mx >= track_l - U(14)) {
+                g_editing = false;
+                g_drag = i;  // set below for as long as it is held
+            } else if (c.kind == kChoice || c.kind == kSlider) {
                 g_editing = false;
                 c.step(mx < (left + cbr.x) / 2 && mx > left - U(30) ? -1 : 1);
             } else if (c.kind == kKey) {
@@ -724,6 +866,10 @@ void DrawPanel(double) {
                 Activate(c, i);
             }
         }
+        if (g_drag == i) {
+            if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) g_drag = -1;
+            else c.set(std::clamp((io.MousePos.x - track_l) / (track_r - track_l), 0.0f, 1.0f));
+        }
         if (hover && io.MouseWheel != 0 && (c.kind == kChoice || c.kind == kSlider)) c.step(io.MouseWheel > 0 ? 1 : -1);
         if (hover && ImGui::IsMouseClicked(ImGuiMouseButton_Right) && (c.kind == kChoice || c.kind == kSlider)) c.step(-1);
         if (is_sel) {
@@ -731,8 +877,54 @@ void DrawPanel(double) {
             Ease(g_hl_tl.x, ctl.x, 20), Ease(g_hl_tl.y, ctl.y, 20), Ease(g_hl_br.x, cbr.x, 20), Ease(g_hl_br.y, cbr.y, 20);
         }
     }
-    d->AddRect(g_hl_tl, g_hl_br, Fade(kAccent, a * (g_editing ? 1.0f : 0.85f)), U(14), 0, g_editing ? U(3) : U(2));
+    if (sel != footer_card)
+        d->AddRect(g_hl_tl, g_hl_br, Fade(kAccent, a * (g_editing ? 1.0f : 0.85f)), U(14), 0, g_editing ? U(3) : U(2));
     d->PopClipRect();
+    if (g_drop >= 0 && g_drop < int(tab.cards.size()) && tab.cards[size_t(g_drop)].list) {
+        // the choice's list under its card (over it near the bottom), the current entry marked, a wheel when long
+        Card& c = tab.cards[size_t(g_drop)];
+        std::vector<std::string> items = c.list();
+        int n = int(items.size()), cur = c.index ? c.index() : -1;
+        constexpr int kShown = 8;
+        int shown = std::min(n, kShown);
+        float ih = U(40), w = U(240);
+        for (const std::string& it : items) w = std::max(w, TextSize(g_body, U(18), it).x + U(64));
+        float h = ih * float(shown) + U(12);
+        float x1 = g_drop_anchor_br.x - U(12), x0 = x1 - w;
+        float y0 = g_drop_anchor_br.y + U(6);
+        if (y0 + h > br.y - U(12)) y0 = g_drop_anchor_tl.y - U(6) - h;
+        ImVec2 dtl{x0, y0}, dbr{x1, y0 + h};
+        bool over = ImGui::IsMouseHoveringRect(dtl, dbr);
+        if (g_drop_fresh) g_drop_first = std::clamp(cur - shown / 2, 0, std::max(0, n - shown)), g_drop_fresh = false;
+        if (over && io.MouseWheel != 0) g_drop_first = std::clamp(g_drop_first - int(io.MouseWheel), 0, std::max(0, n - shown));
+        d->AddRectFilled({dtl.x + U(3), dtl.y + U(8)}, {dbr.x + U(3), dbr.y + U(12)}, Fade(Rgba(0, 0, 0, 110), a), U(14));
+        d->AddRectFilled(dtl, dbr, Fade(Rgba(24, 31, 39, 252), a), U(12));
+        d->AddRect(dtl, dbr, Fade(Rgba(46, 217, 199, 120), a), U(12), 0, U(1.5f));
+        int picked = -1;
+        for (int k = g_drop_first; k < g_drop_first + shown; k++) {
+            ImVec2 rtl{dtl.x + U(6), dtl.y + U(6) + ih * float(k - g_drop_first)}, rbr{dbr.x - U(6), rtl.y + ih};
+            bool hot = ImGui::IsMouseHoveringRect(rtl, rbr);
+            if (hot) d->AddRectFilled(rtl, rbr, Fade(Rgba(255, 255, 255, 22), a), U(8));
+            ImVec2 ts = TextSize(g_body, U(18), items[size_t(k)]);
+            Text(d, k == cur ? g_bold : g_body, U(18), {rtl.x + U(14), rtl.y + (ih - ts.y) / 2}, Fade(k == cur ? kAccent : kText, a),
+                 items[size_t(k)]);
+            if (k == cur) d->AddCircleFilled({rbr.x - U(18), (rtl.y + rbr.y) / 2}, U(4), Fade(kAccent, a), 12);
+            if (hot && click) picked = k;
+        }
+        // more above or below: a small arrow at that edge
+        float ax = x1 - U(22), as = U(5);
+        if (g_drop_first > 0)
+            d->AddTriangleFilled({ax - as, dtl.y + U(10)}, {ax + as, dtl.y + U(10)}, {ax, dtl.y + U(5)}, Fade(kSoft, a));
+        if (g_drop_first + shown < n)
+            d->AddTriangleFilled({ax - as, dbr.y - U(10)}, {ax + as, dbr.y - U(10)}, {ax, dbr.y - U(5)}, Fade(kSoft, a));
+        if (picked >= 0) {
+            c.pick(picked);
+            g_drop = -1;
+        } else if (click && !over && !opened_now) {
+            g_drop = -1;
+        }
+        g_drop_tl = dtl, g_drop_br = dbr;
+    }
     // more below or above: a soft edge
     if (g_scroll > 1) d->AddRectFilledMultiColor({tl.x + U(2), area_t - U(6)}, {br.x - U(2), area_t + U(24)}, Fade(kPanel, a), Fade(kPanel, a), 0, 0);
     if (content - g_scroll > view + 1)
@@ -757,17 +949,154 @@ void DrawPanel(double) {
     } else {
         const char* what = sc.kind == kSwitch ? "Switch" : sc.kind == kButton ? "Select" : sc.kind == kKey ? "Rebind" : "Change";
         fx += Hint(d, {fx, fy}, "A", green, what, a);
-        fx += Hint(d, {fx, fy}, "B", red, "Close", a);
-        fx += Hint(d, {fx, fy}, "LB", grey, "", a) - U(26);
-        fx += Hint(d, {fx, fy}, "RB", grey, "Tabs", a);
+        if (!g_setup) {
+            fx += Hint(d, {fx, fy}, "B", red, "Close", a);
+            fx += Hint(d, {fx, fy}, "LB", grey, "", a) - U(26);
+            fx += Hint(d, {fx, fy}, "RB", grey, "Tabs", a);
+        }
     }
-    const char* saved = "Saved automatically";
-    ImVec2 ss = TextSize(g_body, U(16), saved);
-    Text(d, g_body, U(16), {br.x - U(40) - ss.x, fy + U(4)}, Fade(Rgba(154, 166, 178, 150), a), saved);
+    if (footer_card >= 0) {
+        // the footer's button: right-aligned, the accent when it can be pressed
+        Card& c = tab.cards[size_t(footer_card)];
+        bool off = c.enabled && !c.enabled(), is_sel = sel == footer_card;
+        ImVec2 ts = TextSize(g_bold, U(22), c.name);
+        float w = std::max(U(200), ts.x + U(80)), h = U(52);
+        ImVec2 q{br.x - U(40), fy + U(14) + h / 2 - U(2)}, p{q.x - w, q.y - h};
+        bool hover = mouse && ImGui::IsMouseHoveringRect(p, q);
+        if (hover && mouse_moved && !g_editing) sel = footer_card, is_sel = true;
+        if (hover && click) sel = footer_card, Activate(c, footer_card);
+        ImU32 fill = off ? Rgba(255, 255, 255, 18) : is_sel ? Rgba(70, 235, 216) : kAccent;
+        d->AddRectFilled(p, q, Fade(fill, a), h / 2);
+        if (is_sel && !off) d->AddRect({p.x - U(4), p.y - U(4)}, {q.x + U(4), q.y + U(4)}, Fade(kAccent, a * 0.6f), h / 2 + U(4), 0, U(2));
+        std::string label = c.name + "  \xE2\x80\xBA";
+        ImVec2 ls = TextSize(g_bold, U(22), label);
+        Text(d, g_bold, U(22), {p.x + (w - ls.x) / 2, p.y + (h - ls.y) / 2}, Fade(off ? Rgba(120, 130, 140) : Rgba(6, 30, 27), a), label);
+        if (is_sel) g_hl_tl = p, g_hl_br = q;
+    } else {
+        const char* saved = "Saved automatically";
+        ImVec2 ss = TextSize(g_body, U(16), saved);
+        Text(d, g_body, U(16), {br.x - U(40) - ss.x, fy + U(4)}, Fade(Rgba(154, 166, 178, 150), a), saved);
+    }
     ImGui::End();
 }
 
+std::string Narrow(const std::wstring& w) {
+    if (w.empty()) return {};
+    int n = WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()), nullptr, 0, nullptr, nullptr);
+    std::string s(size_t(n), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, w.c_str(), int(w.size()), s.data(), n, nullptr, nullptr);
+    return s;
+}
+
+// an info card: a heading in a colour and a line under it, cut to fit
+void Headed(ImDrawList* d, ImVec2 tl, ImVec2 br, float a, ImU32 col, const std::string& head, const std::string& line) {
+    float x = tl.x + U(24);
+    Text(d, g_bold, U(22), {x, tl.y + U(20)}, Fade(col, a), head);
+    Text(d, g_body, U(16), {x, tl.y + U(56)}, Fade(kSoft, a), Fit(g_body, U(16), line, br.x - x - U(24)));
+}
+
+// the setup window's one tab: the game, preparing it, the main display settings, Play
+std::vector<Tab> BuildSetup(SetupModel& m) {
+    Tab t{"Setup", 0xE713, {}};
+    Card game{"", "", kInfo};
+    game.wide = true;
+    game.height = 100;
+    game.draw = [&m](ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
+        if (m.game_ok) Headed(d, tl, br, a, kAccent, "Found your game", Narrow(m.found));
+        else if (m.other_release)
+            Headed(d, tl, br, a, Rgba(255, 171, 51), "That is a different release of the game",
+                   Narrow(m.found) + " is from another version than this port was made for, and would most likely crash.");
+        else Headed(d, tl, br, a, kText, "Choose your game", "Its disc image (.iso), or a folder with default.xbe and the rest of the disc.");
+    };
+    t.cards.push_back(game);
+    Card iso{"Choose disc image", "An .iso of your game disc.", kButton};
+    iso.press = [&m] { m.pick_iso = true; };
+    iso.enabled = [&m] { return m.code.state != app::GameCodeStatus::kRunning; };  // not while it prepares
+    t.cards.push_back(iso);
+    Card dir{"Choose game folder", "The disc's files: default.xbe and its folders.", kButton};
+    dir.press = [&m] { m.pick_folder = true; };
+    dir.enabled = [&m] { return m.code.state != app::GameCodeStatus::kRunning; };
+    t.cards.push_back(dir);
+    Card prep{"", "", kInfo};
+    prep.wide = true;
+    prep.height = 100;
+    prep.draw = [&m](ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
+        using S = app::GameCodeStatus;
+        if (!m.blocker.empty()) return Headed(d, tl, br, a, Rgba(255, 120, 100), "Preparing cannot start", Narrow(m.blocker));
+        switch (m.code.state) {
+            case S::kRunning: {
+                Headed(d, tl, br, a, kText, Narrow(m.code.stage), Narrow(m.code.time_left));
+                float x0 = tl.x + U(24), x1 = br.x - U(24), y = br.y - U(22);
+                d->AddRectFilled({x0, y}, {x1, y + U(6)}, Fade(Rgba(255, 255, 255, 30), a), U(3));
+                d->AddRectFilled({x0, y}, {x0 + (x1 - x0) * std::clamp(m.code.fraction, 0.0f, 1.0f), y + U(6)}, Fade(kAccent, a), U(3));
+                break;
+            }
+            case S::kReady: Headed(d, tl, br, a, kAccent, "Ready to play", "The game's code is built for this PC. Later starts skip this."); break;
+            case S::kFailed: Headed(d, tl, br, a, Rgba(255, 120, 100), "Preparing failed", Narrow(m.code.failure)); break;
+            default: Headed(d, tl, br, a, kSoft, "Preparing the game", "Starts by itself once your game is found: its code is built for this PC, once."); break;
+        }
+    };
+    t.cards.push_back(prep);
+    // the main settings, the menu's own cards
+    std::vector<Tab> all = Build();
+    for (const Tab& tab : all)
+        for (const Card& c : tab.cards)
+            if (c.name == "Display mode" || c.name == "Resolution" || c.name == "Frame rate cap" || c.name == "VSync" ||
+                c.name == "Aspect ratio" || c.name == "Render resolution")
+                t.cards.push_back(c);
+    Card rm = Switch("Remove the compiler after", "", [&m]() -> bool& { return m.remove_compiler; });
+    rm.help = "Frees its space once the game is ready. A new release brings it back.";
+    t.cards.push_back(rm);
+    Card play{"Play", "", kButton};
+    play.wide = true;
+    play.footer = true;
+    play.enabled = [&m] { return m.game_ok && m.code.state == app::GameCodeStatus::kReady; };
+    play.press = [&m] { m.play = true; };
+    t.cards.push_back(play);
+    return {t};
+}
+
 }  // namespace
+
+void SetupUi(SetupModel& m) {
+    if (!g_setup) {
+        g_setup = true;
+        g_tabs = BuildSetup(m);
+        g_tab = 0;
+        // first the game's buttons, or Play when it is all there
+        g_sel.assign(1, m.game_ok ? int(g_tabs[0].cards.size()) - 1 : 1);
+        g_editing = false;
+        g_scroll = 0;
+        g_hl_tl = {-1, -1};
+        g_tab_x = -1;
+    }
+    std::vector<Cmd> cmds;
+    {
+        std::lock_guard lock(g_cmd_lock);
+        cmds.swap(g_cmds);
+    }
+    g_open = true;
+    for (Cmd c : cmds) Run(c);
+    // Play becomes possible (the game found and prepared): it is selected, so A starts the game
+    static bool could_play = false;
+    bool can_play = m.game_ok && m.code.state == app::GameCodeStatus::kReady;
+    if (can_play && !could_play && !g_editing) g_sel[0] = int(g_tabs[0].cards.size()) - 1;
+    could_play = can_play;
+    g_open = true;
+    g_show = 1;
+    ImGuiIO& io = ImGui::GetIO();
+    g_u = std::min(io.DisplaySize.x / 1260.0f, io.DisplaySize.y / 820.0f);
+    DrawPanel(0);
+}
+
+void SetupEnd() {
+    g_setup = false;
+    g_tabs.clear();
+    g_sel.clear();
+    g_open = false;
+    g_show = 0;
+    g_editing = false;
+}
 
 void Fonts() {
     ImGuiIO& io = ImGui::GetIO();
@@ -935,6 +1264,8 @@ void Ui(double fps) {
         x += TextSize(g_bold, U(17), msg).x + U(16);
         Text(d, g_body, U(15), {x, tl.y + U(13)}, Fade(kSoft, alpha), "F1  /  Back + Start");
     }
+    if (!g_open) g_drop = -1, g_drag = -1;
+    else input::FreeCursor();  // the options take the mouse
     Ease(g_show, g_open ? 1.0f : 0.0f, 16);
     if (g_show <= 0.01f) {
         g_hl_tl = {-1, -1};

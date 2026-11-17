@@ -769,4 +769,68 @@ bool PrepareGameCode(const GameFiles& game) {
     return false;
 }
 
+// The setup window's build (setup.cpp): PrepareGameCode's work on a thread of its own, its progress read each frame.
+namespace {
+std::vector<Image> g_setup_images;
+std::vector<Target> g_setup_stale;
+std::thread g_setup_worker;
+std::atomic<int> g_setup_state{0};  // GameCodeStatus::State
+}  // namespace
+
+bool GameCodeNeeded(const GameFiles& game) {
+    if (g_setup_state == GameCodeStatus::kRunning) return true;
+    g_setup_images = Images();
+    g_setup_stale = StaleTargets(game, g_setup_images);
+    for (const Target& target : g_setup_stale) LOGR("Game code: building %ls.dll", target.image->exe.c_str());
+    if (g_setup_stale.empty()) g_setup_state = GameCodeStatus::kReady;
+    return !g_setup_stale.empty();
+}
+
+std::wstring StartGameCode() {
+    if (g_setup_state == GameCodeStatus::kRunning) return {};
+    if (std::wstring blocker = Blocker(g_setup_stale); !blocker.empty()) return blocker;
+    if (g_setup_worker.joinable()) g_setup_worker.join();
+    g_progress.cancel = false;
+    g_progress.stage = Stage::Translating;
+    g_progress.bytes_done = 0;
+    g_progress.files_done = 0;
+    g_failure.clear();
+    g_setup_state = GameCodeStatus::kRunning;
+    g_setup_worker = std::thread([] {
+        SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED);  // no sleep while it works
+        bool ok = Build(g_setup_stale);
+        SetThreadExecutionState(ES_CONTINUOUS);
+        if (ok) g_progress.stage = Stage::Ready;
+        g_setup_state = ok ? GameCodeStatus::kReady : g_progress.cancel ? GameCodeStatus::kIdle : GameCodeStatus::kFailed;
+    });
+    return {};
+}
+
+GameCodeStatus GameCodeState() {
+    GameCodeStatus s;
+    s.state = GameCodeStatus::State(g_setup_state.load());
+    s.fraction = Fraction();
+    s.stage = s.state == GameCodeStatus::kRunning ? StageText() : L"";
+    s.time_left = TimeLeftText();
+    if (s.state == GameCodeStatus::kFailed) s.failure = L"Preparing the game failed. " + g_failure;
+    return s;
+}
+
+void StopGameCode() {
+    g_progress.cancel = true;
+    if (g_setup_worker.joinable()) g_setup_worker.join();
+}
+
+bool LoadGameCode() {
+    if (g_setup_images.empty()) g_setup_images = Images();
+    for (const Image& image : g_setup_images)
+        if (image.xbe == IMAGE_XBE && dispatch::Load(CodeDll(image))) return true;
+    MessageBoxW(nullptr, L"The game's code could not be loaded, see the log in the logs folder.", kGame.title,
+                MB_ICONERROR);
+    return false;
+}
+
+uint64_t CompilerSize() { return CompilerBytes(); }
+void RemoveCompiler() { DeleteCompiler(); }
+
 }  // namespace app

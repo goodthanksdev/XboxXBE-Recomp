@@ -166,6 +166,14 @@ X86Func* Find(uint32_t guest);
 #define SYM_DirectSoundGetSampleTime FFFFFF22
 #define HAS_DirectSoundGetSampleTime 0
 #endif
+#ifndef SYM_CDirectSoundStream_SetMixBinVolumesMask
+#define SYM_CDirectSoundStream_SetMixBinVolumesMask FFFFFF23
+#define HAS_CDirectSoundStream_SetMixBinVolumesMask 0
+#endif
+#ifndef SYM_IDirectSoundBuffer_SetMixBinVolumesMask
+#define SYM_IDirectSoundBuffer_SetMixBinVolumesMask FFFFFF24
+#define HAS_IDirectSoundBuffer_SetMixBinVolumesMask 0
+#endif
 
 namespace {
 
@@ -808,6 +816,11 @@ void SetBins(Voice& v, uint32_t mixbins) {
     }
     v.nbins = uint8_t(n);
 }
+// 3911's form: (bin mask, LONG volumes[]), a volume for each bin in the mask, lowest bin first
+void SetBinVolumesMask(Voice& v, uint32_t mask, uint32_t volumes) {
+    for (uint32_t bin = 0, k = 0; bin < 32; bin++)
+        if (mask >> bin & 1) v.bin_mb[bin] = volumes ? int32_t(R32(volumes + 4 * k++)) : 0;  // no list: full volume
+}
 // volumes only, the bins stay
 void SetBinVolumes(Voice& v, uint32_t mixbins) {
     if (!mixbins) return;
@@ -931,7 +944,8 @@ static void AuditExports() {
         SYM(IDirectSoundBuffer_SetPitch), SYM(IDirectSoundBuffer_SetLFO),
         SYM(CDirectSoundStream_GetVoiceProperties), SYM(CDirectSoundStream_Set3DVoiceData),
         SYM(CDirectSoundStream_Use3DVoiceData), SYM(CDirectSoundStream_SetPitch), SYM(CDirectSoundStream_SetLFO),
-        SYM(CDirectSoundStream_SetOutputBuffer), SYM(IDirectSound_SetAllParameters), SYM(DirectSoundGetSampleTime)};
+        SYM(CDirectSoundStream_SetOutputBuffer), SYM(IDirectSound_SetAllParameters), SYM(DirectSoundGetSampleTime),
+        SYM(CDirectSoundStream_SetMixBinVolumesMask), SYM(IDirectSoundBuffer_SetMixBinVolumesMask)};
     std::string left;
     // the library's own section: the WMA decoder shares the export ids and touches no DSOUND object
     uint32_t lo = 0, hi = 0;
@@ -1281,6 +1295,10 @@ BUFFER(SetMixBinVolumes, 2) {
     SetBinVolumes(v, a[1]);
     return 0;
 }
+BUFFER(SetMixBinVolumesMask, 3) {
+    SetBinVolumesMask(v, a[1], a[2]);
+    return 0;
+}
 BUFFER(SetMixBins, 2) {
     SetBins(v, a[1]);
     return 0;
@@ -1506,6 +1524,10 @@ STREAM(SetHeadroom, 2) {
 }
 STREAM(SetMixBinVolumes, 2) {
     SetBinVolumes(v, a[1]);
+    return 0;
+}
+STREAM(SetMixBinVolumesMask, 3) {
+    SetBinVolumesMask(v, a[1], a[2]);
     return 0;
 }
 STREAM(SetMixBins, 2) {

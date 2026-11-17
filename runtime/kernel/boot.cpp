@@ -180,6 +180,14 @@ void Relaunch(const char* exe) {
     size_t args = line[0] == L'"' ? line.find(L'"', 1) + 1 : line.find(L' ');
     line = L"\"" + path + L"\"" + (args == std::wstring::npos ? L"" : line.substr(args));
     if (line.find(L"--relaunched") == std::wstring::npos) line += L" --relaunched";  // no boot splash again
+    // the new window opens where this one is (its monitor): --window=x,y,w,h, replacing an earlier one
+    if (size_t at = line.find(L" --window="); at != std::wstring::npos) {
+        size_t end = line.find(L' ', at + 1);
+        line.erase(at, end == std::wstring::npos ? std::wstring::npos : end - at);
+    }
+    if (RECT wr; GetWindowRect(static_cast<HWND>(app::Window()), &wr))
+        line += L" --window=" + std::to_wstring(wr.left) + L"," + std::to_wstring(wr.top) + L"," +
+                std::to_wstring(wr.right - wr.left) + L"," + std::to_wstring(wr.bottom - wr.top);
     // this process lives on through the handover: the new one binds the same ports
     xnet::CloseSockets();
     STARTUPINFOW si{sizeof(si)};

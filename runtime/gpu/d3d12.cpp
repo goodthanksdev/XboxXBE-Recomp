@@ -2460,6 +2460,11 @@ void D3D12Backend::UploadConstants(const State& s, const DrawShaders& sh, const 
     bool same = !ext_ && last_vsc_gpu_ && !std::memcmp(last_vsc_.data(), s.vsc.data(), sizeof(s.vsc));
     uint8_t* vsc = same ? nullptr : UploadVertexConstants(s);
     FillSurfaceConstants(s, size, c);
+    // The widescreen hack, for a game made for 4:3 alone (GameInfo::widescreen) shown 16:9: its 3D draws into the
+    // frame are squeezed to the 4:3 frame's share of the picture, which the blit stretches back, so the world keeps
+    // its shape and shows more at the sides. Smaller targets (shadows, reflections) and 2D stay as they are.
+    float wide = !app::kGame.widescreen && app::Widescreen() && size.w == guest_w_ && size.h == guest_h_ ? 0.75f : 1.0f;
+    c.wide[0] = c.wide[1] = c.wide[2] = c.wide[3] = wide;
     // points: host pixels per console pixel, also keeps them off the far edge pull out of screen passes
     if (k.topo == uint32_t(Topology::Points)) c.surf[3] = TargetScale();
     FillFogConstants(s, sh.prog, c);

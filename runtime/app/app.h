@@ -29,7 +29,10 @@ struct Settings {
     uint32_t audio_output = 0;         // audio::kOutputAuto, Stereo, Surround or Mono
     bool aspect_4_3 = false;
     uint32_t volume = 100;             // master volume, percent
-    bool show_fps = false;             // a frame rate counter in the corner           // tell the game it's on a 4:3 TV and show 4:3 (read at start)
+    bool show_fps = false;             // a frame rate counter in the corner
+    uint32_t mouse_sensitivity = 100;  // percent, GameInfo::mouse_stick
+    std::string game_path;             // a disc image or game folder picked in the setup, looked in before assets
+    bool setup_done = false;           // the setup window was finished once: it opens again only when needed           // tell the game it's on a 4:3 TV and show 4:3 (read at start)
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
 };
 
@@ -49,17 +52,39 @@ float RenderScale(uint32_t guest_height);
 bool Widescreen();
 
 std::filesystem::path ExeDir();
-// the game in assets (game_files.cpp): its folder and this executable's xbe, from the extracted files or a disc
-// image (.iso), which it mounts as D:; false after telling the player what is missing
+// the game (game_files.cpp): the setup's game_path, then assets: its folder and this executable's xbe, from the
+// extracted files or a disc image (.iso), which it mounts as D:; false after telling the player what is missing.
+// Quiet (ask false) it tells nothing and only fills found: where it looked or what it found instead.
 struct GameFiles {
     std::filesystem::path dir;
     std::vector<uint8_t> xbe;
 };
-bool FindGame(GameFiles& game);
+struct GameFound {
+    std::filesystem::path where;  // the folder or disc image the game is in, or the other release found
+    bool other_release = false;   // a copy of the game, but not the release this build is made from
+};
+bool FindGame(GameFiles& game, bool ask = true, GameFound* found = nullptr);
 std::string Sha1(const std::vector<uint8_t>& data);  // lower case hex
 // the recompiled code, <exe>.dll, built from the game in assets when missing or out of date (game_code.cpp) and
 // loaded; false after telling the player why the game cannot start, or when they chose not to start it yet
 bool PrepareGameCode(const GameFiles& game);
+// the same build driven by the setup window (setup.cpp), without a window of its own
+struct GameCodeStatus {
+    enum State { kIdle, kRunning, kReady, kFailed } state = kIdle;
+    float fraction = 0;
+    std::wstring stage, time_left, failure;
+};
+bool GameCodeNeeded(const GameFiles& game);  // something to build for this game; false: the code is current
+std::wstring StartGameCode();                // starts it on a thread; what stops it from starting, else empty
+GameCodeStatus GameCodeState();
+void StopGameCode();                         // waits for the thread
+bool LoadGameCode();                         // after a build or when current; false after telling the player
+uint64_t CompilerSize();
+void RemoveCompiler();                       // the game runs from its DLL alone
+// the setup window (setup.cpp), before the game starts: finds the game, prepares its code, a few settings, Play.
+// Opens on the first start, when the game is missing or its code needs building, or with Shift held at launch.
+// True: the game is found and its code loaded. False: the player closed it.
+bool RunSetup(GameFiles& game);
 int Instance();  // --instance N on the command line, 0 without: a second copy on this PC for system link tests
 void* Window();  // HWND
 // boot splash: GameInfo::splash .bmp or .png beside the exe, up before the game window
@@ -75,7 +100,8 @@ void FinishHandover();  // any thread but the window thread's: opens the game wi
 // held around ImGui: the window thread's messages and the renderer's frame
 std::recursive_mutex& UiLock();
 
-// a control the keyboard can press: the pad's "up" "down" "left" "right" (left stick), "dpad_up" and the rest,
+// a control the keyboard can press: the pad's "up" "down" "left" "right" (left stick), "rs_up" and the rest (right
+// stick), "dpad_up" and the rest,
 // "a" "b" "x" "y" "black" "white" "lt" "rt" "start" "back" "ls" "rs"; its name as the game calls it; default keys
 struct KeyControl {
     const char* control;
@@ -124,6 +150,9 @@ struct GameInfo {
     // the options menu: its header and the game's own switches
     const char* version = nullptr;  // "0.1.0"
     const char* tier = nullptr;     // "alpha", "beta" or "complete"
+    bool widescreen = true;         // the game draws 16:9 when the console says so; false: made for 4:3, shown
+                                    // widescreen by the toolkit's hack (3D squeezed, gpu/d3d12.cpp UploadConstants)
+    const char* mouse_stick = nullptr;  // "right" or "left": in keyboard play the mouse moves that stick
     std::vector<MenuItem> menu;
 };
 extern const GameInfo kGame;

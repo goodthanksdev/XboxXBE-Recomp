@@ -106,6 +106,7 @@ struct DrawConstants {
     float rtshift[4];    // per kTexTarget stage: host pixels its reads move along x and y, negative up and left
     float zparams[4];    // ReversedDepthHlsl: a w buffer's scale (0 for a z buffer), its far w, the polygon offset
     float vdef[16][4];   // the value a vertex shader input reads when no stream feeds it (SetVertexData)
+    float wide[4];       // x: a 3D vertex's clip x times this, the widescreen hack (1 off)
 };
 
 }  // namespace gpu

@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cctype>
@@ -21,6 +22,9 @@ struct Name {
     int vk;
     const char* name;
 };
+// the mouse wheel as two keys (codes Windows leaves unassigned): a notch holds one for kWheelHold, a flick of a stick
+constexpr int kWheelUp = 0x0E, kWheelDown = 0x0F;
+constexpr ULONGLONG kWheelHold = 120;
 // F1 opens the game's options and F3 writes the threads to the log: neither binds
 const Name kNames[] = {
     {VK_SPACE, "Space"}, {VK_RETURN, "Enter"}, {VK_ESCAPE, "Esc"}, {VK_TAB, "Tab"}, {VK_BACK, "Backspace"},
@@ -35,6 +39,8 @@ const Name kNames[] = {
     {VK_NUMPAD4, "Num 4"}, {VK_NUMPAD5, "Num 5"}, {VK_NUMPAD6, "Num 6"}, {VK_NUMPAD7, "Num 7"},
     {VK_NUMPAD8, "Num 8"}, {VK_NUMPAD9, "Num 9"}, {VK_ADD, "Num +"}, {VK_SUBTRACT, "Num -"},
     {VK_MULTIPLY, "Num *"}, {VK_DIVIDE, "Num /"}, {VK_DECIMAL, "Num ."},
+    {VK_LBUTTON, "Left Mouse"}, {VK_RBUTTON, "Right Mouse"}, {VK_MBUTTON, "Middle Mouse"}, {VK_XBUTTON1, "Mouse 4"},
+    {VK_XBUTTON2, "Mouse 5"}, {kWheelUp, "Scroll Up"}, {kWheelDown, "Scroll Down"},
 };
 
 int VkFromName(std::string s) {
@@ -63,8 +69,15 @@ std::mutex g_lock;
 std::vector<std::array<int, kKeySlots>> g_keys;  // per GameInfo::keys control
 std::atomic<bool> g_off{false};
 std::atomic<int> g_capture{-1};  // control * kKeySlots + slot
-std::atomic<uint64_t> g_pad_used{0};  // GetTickCount64 when port 0's controller last had input
+std::atomic<uint64_t> g_pad_used{0};
+std::atomic<bool> g_mouse_held{false};  // mouse play has the cursor  // GetTickCount64 when port 0's controller last had input
 uint8_t g_wait[256];             // down when the keys came back on: counts once let go
+std::atomic<ULONGLONG> g_wheel_until[2] = {0, 0};  // up, down: held until then (GetTickCount64)
+
+bool Held(int vk) {
+    if (vk == kWheelUp || vk == kWheelDown) return GetTickCount64() < g_wheel_until[vk == kWheelDown];
+    return (GetAsyncKeyState(vk) & 0x8000) != 0;
+}
 
 void Ensure() {
     if (g_keys.size() == app::kGame.keys.size()) return;
@@ -144,7 +157,35 @@ void CaptureKey(int c, int slot) { g_capture = c * kKeySlots + slot; }
 bool Capturing() { return g_capture >= 0; }
 
 bool KeyMessage(uint32_t msg, uintptr_t wp, intptr_t lp) {
+    // the window put in the background: the cursor goes free at once, whatever the game is doing
+    if ((msg == WM_ACTIVATE && LOWORD(wp) == WA_INACTIVE) || msg == WM_KILLFOCUS) FreeCursor();
+    // a held cursor: none shown over the window
+    if (msg == WM_SETCURSOR && g_mouse_held && LOWORD(lp) == HTCLIENT) {
+        SetCursor(nullptr);
+        return true;
+    }
     int cap = g_capture;
+    // a mouse button while binding
+    // a wheel notch: held for a moment, or bound while binding
+    if (msg == WM_MOUSEWHEEL) {
+        int up = GET_WHEEL_DELTA_WPARAM(wp) > 0 ? kWheelUp : kWheelDown;
+        if (cap >= 0) {
+            SetKey(cap / kKeySlots, cap % kKeySlots, up);
+            g_capture = -1;
+            app::Save();
+            return true;
+        }
+        g_wheel_until[up == kWheelDown] = GetTickCount64() + kWheelHold;
+        return false;
+    }
+    int click = msg == WM_LBUTTONDOWN ? VK_LBUTTON : msg == WM_RBUTTONDOWN ? VK_RBUTTON : msg == WM_MBUTTONDOWN ? VK_MBUTTON
+              : msg == WM_XBUTTONDOWN ? (HIWORD(wp) == XBUTTON1 ? VK_XBUTTON1 : VK_XBUTTON2) : 0;
+    if (cap >= 0 && click) {
+        SetKey(cap / kKeySlots, cap % kKeySlots, click);
+        g_capture = -1;
+        app::Save();
+        return true;
+    }
     if (cap < 0 || (msg != WM_KEYDOWN && msg != WM_SYSKEYDOWN)) return false;
     if ((lp >> 30) & 1) return true;  // held from before (the key that started the capture): not a new press
     int vk = ExactVk(wp, lp);
@@ -160,10 +201,68 @@ bool KeyMessage(uint32_t msg, uintptr_t wp, intptr_t lp) {
 
 void ControllerUsed() { g_pad_used = GetTickCount64(); }
 
+void FreeCursor() {
+    if (g_mouse_held.exchange(false)) ClipCursor(nullptr);
+}
+
+namespace {
+// The cursor: while the game window has the focus and the options are closed it is hidden and kept inside the window
+// (these games have no cursor of their own, and a click can't land on another monitor). The options, another window
+// or Alt+Tab free it.
+void HoldCursor(bool hold) {
+    if (!hold) {
+        if (g_mouse_held.exchange(false)) ClipCursor(nullptr);
+        return;
+    }
+    HWND w = static_cast<HWND>(app::Window());
+    RECT r;
+    GetClientRect(w, &r);
+    MapWindowPoints(w, nullptr, reinterpret_cast<POINT*>(&r), 2);
+    ClipCursor(&r);  // each time: the window may have moved
+    g_mouse_held = true;
+}
+
+// Mouse play (GameInfo::mouse_stick): the held cursor goes back to the window's centre and its movement pushes the
+// stick. A flick is a full push for a moment; still, the stick eases back to the middle.
+float g_mx = 0, g_my = 0;
+bool g_centred = false;
+void MouseStick(Pad& p, bool on) {
+    if (!on || !g_mouse_held) {
+        g_mx = g_my = 0;
+        g_centred = false;
+        return;
+    }
+    HWND w = static_cast<HWND>(app::Window());
+    RECT r;
+    GetClientRect(w, &r);
+    MapWindowPoints(w, nullptr, reinterpret_cast<POINT*>(&r), 2);
+    POINT c{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+    if (!g_centred) {
+        SetCursorPos(c.x, c.y);
+        g_centred = true;
+        return;
+    }
+    POINT m;
+    GetCursorPos(&m);
+    SetCursorPos(c.x, c.y);
+    // stick units per pixel of movement, 1080p's pixels whatever the window
+    float k = 900.0f * app::Get().mouse_sensitivity / 100.0f * 1080.0f / float(std::max<LONG>(r.bottom - r.top, 1));
+    g_mx = g_mx * 0.55f + float(m.x - c.x) * k;
+    g_my = g_my * 0.55f - float(m.y - c.y) * k;
+    auto add = [](int16_t& v, float d) { v = int16_t(std::clamp(float(v) + d, -32767.0f, 32767.0f)); };
+    bool right = std::strcmp(app::kGame.mouse_stick, "left") != 0;
+    add(right ? p.rx : p.lx, g_mx);
+    add(right ? p.ry : p.ly, g_my);
+}
+}  // namespace
+
 void AddKeys(int port, Pad& p) {
-    if (port != 0 || app::kGame.keys.empty() || g_off || g_capture >= 0) return;
-    if (GetTickCount64() - g_pad_used < 2000) return;  // the controller is in use
-    if (GetForegroundWindow() != static_cast<HWND>(app::Window())) return;
+    if (port != 0) return;
+    bool focus = !g_off && g_capture < 0 && GetForegroundWindow() == static_cast<HWND>(app::Window());
+    HoldCursor(focus);
+    bool on = focus && !app::kGame.keys.empty() && GetTickCount64() - g_pad_used >= 2000;  // the pad in use: keys rest
+    if (app::kGame.mouse_stick) MouseStick(p, on);
+    if (!on) return;
     static const char* kButtons[] = {"dpad_up", "dpad_down", "dpad_left", "dpad_right", "start", "back", "ls", "rs"};
     static const char* kAnalog[] = {"a", "b", "x", "y", "black", "white", "lt", "rt"};
     std::lock_guard lock(g_lock);
@@ -173,7 +272,7 @@ void AddKeys(int port, Pad& p) {
         bool down = false;
         for (int vk : g_keys[i]) {
             if (!vk) continue;
-            bool held = (GetAsyncKeyState(vk) & 0x8000) != 0;
+            bool held = Held(vk);
             if (!held) g_wait[vk] = 0;
             down |= held && !g_wait[vk];
         }
@@ -187,6 +286,11 @@ void AddKeys(int port, Pad& p) {
         if (!std::strcmp(c, "down")) p.ly = -32767;
         if (!std::strcmp(c, "left")) p.lx = -32767;
         if (!std::strcmp(c, "right")) p.lx = 32767;
+        // the right stick (a lightsaber, a camera)
+        if (!std::strcmp(c, "rs_up")) p.ry = 32767;
+        if (!std::strcmp(c, "rs_down")) p.ry = -32767;
+        if (!std::strcmp(c, "rs_left")) p.rx = -32767;
+        if (!std::strcmp(c, "rs_right")) p.rx = 32767;
     }
 }
 

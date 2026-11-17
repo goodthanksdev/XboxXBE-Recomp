@@ -258,9 +258,9 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     if (relaunched && !logx::kVerbose) LOGR("Relaunched: %s", IMAGE_XBE);
     else app::LogSystem();
 
+    // the setup window when something is missing or on the first start (setup.cpp), else straight on
     app::GameFiles game;
-    if (!app::FindGame(game)) return 1;
-    if (!app::PrepareGameCode(game)) return 1;
+    if (!app::RunSetup(game)) return 1;
 
     bool splash = app::OpenSplash(), handover = app::StartHandover();
 
@@ -272,7 +272,13 @@ int WINAPI wWinMain(HINSTANCE inst, HINSTANCE, PWSTR, int) {
     wc.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     wc.lpszClassName = app::kGame.name;
     RegisterClassExW(&wc);
-    app::g_hwnd = CreateWindowExW(0, wc.lpszClassName, app::kGame.title, WS_POPUP, 0, 0, 1280, 720,
+    // relaunched by the game (a level from the front end): where the last window was, so on the same monitor
+    int wx = 0, wy = 0, ww = 1280, wh = 720;
+    if (const wchar_t* at = wcsstr(GetCommandLineW(), L"--window=")) {
+        int x, y, w, h;
+        if (swscanf(at + 9, L"%d,%d,%d,%d", &x, &y, &w, &h) == 4 && w > 0 && h > 0) wx = x, wy = y, ww = w, wh = h;
+    }
+    app::g_hwnd = CreateWindowExW(0, wc.lpszClassName, app::kGame.title, WS_POPUP, wx, wy, ww, wh,
                                   nullptr, nullptr, inst, nullptr);
     // behind a splash the window stays hidden until the game's first frame; handed over, it is set up hidden
     if (handover) {
