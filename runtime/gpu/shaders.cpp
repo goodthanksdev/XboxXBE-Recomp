@@ -559,7 +559,7 @@ std::string ShaderHooks::Shadow() const {
     std::string r = g_reversed_depth ? "1 - clamp(z, 0, mx) / mx" : "clamp(z, 0, mx) / mx";
     return R"(// the sampler compares, a linear filter blends the four results like the console does
 float4 shadow(Texture2D<float> t, SamplerComparisonState s, float2 uv, float z, int fmt, float2 px, float2 size) {
-    float mx = fmt == 2 ? 65535.0 : 16777215.0;
+    float mx = fmt == 2 ? 65535.0 : fmt == 3 ? 511.9375 : 16777215.0;
     return t.SampleCmpLevelZero(s, uv, )" + r + R"().xxxx;
 }
 )";

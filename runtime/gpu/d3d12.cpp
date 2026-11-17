@@ -259,8 +259,10 @@ DXGI_FORMAT HostFormat(Host h) {
 constexpr uint32_t kFmtD16 = 0x2C;     // D3DFMT_D16
 constexpr uint32_t kFmtLinD16 = 0x30;  // D3DFMT_LIN_D16
 
-// TexInfo::shadow of a depth texture
-uint8_t ShadowDepthKind(uint32_t format) { return format == kFmtD16 || format == kFmtLinD16 ? 2 : 1; }
+// TexInfo::shadow of a depth texture: 1 24 bit, 2 16 bit, 3 16 bit float (F16 / LIN_F16, which runs 0 to 511.9375)
+uint8_t ShadowDepthKind(uint32_t format) {
+    return format == kFmtD16 || format == kFmtLinD16 ? 2 : format == 0x2D || format == 0x31 ? 3 : 1;
+}
 
 // bytes per row of a 32 bit surface in guest memory, rounded to 64
 uint32_t GuestPitch(uint32_t width) { return (width * 4 + 63) & ~63u; }
@@ -2012,6 +2014,10 @@ D3D12_SAMPLER_DESC StageSampler(const State& s, int i, const DrawTextures& stage
         sd.Filter = lin(min) || lin(mag) ? D3D12_FILTER_COMPARISON_MIN_MAG_LINEAR_MIP_POINT
                                          : D3D12_FILTER_COMPARISON_MIN_MAG_MIP_POINT;
         sd.ComparisonFunc = Cmp(s.rs[kRsShadowFunc]);
+        // a border texel is a depth too (Obi-Wan's shadow map: border FFFFFFFF, the far end, so no shadow past its
+        // edges), and depth is stored reversed here, so the border is reversed with it
+        if (g_reversed_depth)
+            for (float& v : sd.BorderColor) v = 1.0f - v;
         sd.MaxAnisotropy = 0;
     }
     return sd;

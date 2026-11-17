@@ -273,7 +273,8 @@ void SyncDeferred() {
 
 float ZScale(const gpu::Surface& zs) {
     uint32_t f = zs.header ? (zs.format >> 8) & 0xFF : 0x2E;
-    return f == 0x2C || f == 0x30 ? 65535.0f : 16777215.0f;
+    // D16 / LIN_D16 0 to 65535, F16 / LIN_F16 (a float) 0 to 511.9375, D24 0 to 16777215
+    return f == 0x2C || f == 0x30 ? 65535.0f : f == 0x2D || f == 0x31 ? 511.9375f : 16777215.0f;
 }
 
 bool g_own_constants = false;  // D3DSCM_NORESERVEDCONSTANTS: c-38 and c-37 are the title's
