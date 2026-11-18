@@ -1448,8 +1448,18 @@ STREAM(GetInfo, 2) {
     W32(info + 12, 0);
     return 0;
 }
+// DSSTREAMSTATUS: ready (a packet slot free), and while the stream runs playing, or paused (starved too when it ran
+// out of packets without a discontinuity). A stream that played its last packet after a discontinuity is neither:
+// games stop a one-shot (a voice line, a jingle) once it no longer reads as playing, and with ready alone they cut it.
 STREAM(GetStatus, 2) {
-    W32(a[1], v.packets.size() < v.max_packets ? 1u : 0u);  // XMEDIASTATUS_ACCEPT_INPUT
+    constexpr uint32_t kReady = 0x1, kPlaying = 0x10000, kPaused = 0x20000, kStarved = 0x40000;
+    uint32_t status = v.packets.size() < v.max_packets ? kReady : 0;
+    if (v.active) {
+        if (v.paused) status |= kPaused;
+        else if (!v.packets.empty()) status |= kPlaying;
+        else status |= kPaused | kStarved;
+    }
+    W32(a[1], status);
     return 0;
 }
 STREAM(Process, 3) {

@@ -94,6 +94,7 @@ Kind KindOf(uint64_t hash) {
         case 0xA8ACC4A41FE77751ull: return Kind::Filter;     // 48 words
         case 0x13CF05D0E014E22Eull: return Kind::Reverb;     // 1211 words
         case 0xF1E0A321578CFED9ull: return Kind::Crosstalk;  // 116 words
+        case 0xB29463726E060CC6ull: return Kind::Crosstalk;  // 115 words, DSOUND 5558 (Crash Nitro Kart): the same state
         default: return Kind::None;
     }
 }
