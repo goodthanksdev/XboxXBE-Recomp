@@ -120,8 +120,10 @@ struct MenuItem {
     const char* tab;   // its tab, by name: "Game", "Cheats"...
     const char* name;
     const char* help;  // a line under the name
-    bool* flag;
+    bool* flag;        // a switch; or null with value and choices: a list to pick from
     const char* note;  // shown after the value while on, e.g. "from the next race"; may be null
+    uint32_t* value = nullptr;              // the chosen entry of choices
+    std::vector<const char*> choices = {};
 };
 struct GameInfo {
     const wchar_t* title;        // window and splash

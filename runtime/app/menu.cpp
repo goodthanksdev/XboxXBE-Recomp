@@ -4,6 +4,7 @@
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+#include <shellapi.h>
 
 #include <algorithm>
 #include <atomic>
@@ -161,7 +162,10 @@ Card Switch(const char* name, const char* help, std::function<bool&()> flag, con
 
 void ResetAll() {
     app::Get() = app::Settings{};
-    for (const app::MenuItem& m : app::kGame.menu) *m.flag = false;
+    for (const app::MenuItem& m : app::kGame.menu) {
+        if (m.flag) *m.flag = false;
+        if (m.value) *m.value = 0;
+    }
     input::ResetKeys();
     audio::SetOutputMode(app::Get().audio_output);
     audio::SetVolume(app::Get().volume);
@@ -400,6 +404,25 @@ std::vector<Tab> Build() {
             std::string n = m.tab;
             tabs.push_back({n, n == "Cheats" ? 0xE945u : 0xE7FCu, {}});
             t = tabs.end() - 1;
+        }
+        if (m.value && !m.choices.empty()) {
+            Card c{m.name, m.help ? m.help : "", kChoice};
+            uint32_t* v = m.value;
+            std::vector<std::string> names(m.choices.begin(), m.choices.end());
+            int n = int(names.size());
+            c.value = [v, names] { return names[*v % names.size()]; };
+            c.step = [v, n](int dir) {
+                *v = uint32_t((int(*v) + dir + n) % n);
+                Changed();
+            };
+            c.list = [names] { return names; };
+            c.index = [v, n] { return int(*v) % n; };
+            c.pick = [v, n](int i) {
+                *v = uint32_t(i % n);
+                Changed();
+            };
+            t->cards.push_back(c);
+            continue;
         }
         bool* flag = m.flag;
         t->cards.push_back(Switch(m.name, m.help ? m.help : "", [flag]() -> bool& { return *flag; }, m.note));
@@ -702,6 +725,30 @@ void InfoCard(ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
          "Changes save as you make them. Built on XboxXBE-Recomp.");
 }
 
+// The launcher's badge, top right of the header: a small anchor and "An AnyDock port", opening the launcher's page.
+// right is its right edge, y the header's text line. The anchor is drawn: ring, shaft, crossbar, arc and flukes.
+void AnyDockBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a) {
+    const char* label = "An AnyDock port";
+    float fs = U(14), s = U(15);
+    ImVec2 ts = TextSize(g_body, fs, label);
+    float w = s + U(7) + ts.x, x = right.x - w, y = right.y + U(1);
+    bool hover = mouse && ImGui::IsMouseHoveringRect({x - U(4), y - U(4)}, {right.x + U(4), y + s + U(4)});
+    if (hover) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
+    if (hover && click) ShellExecuteW(nullptr, L"open", L"https://github.com/goodthanksdev/harbour", nullptr, nullptr, SW_SHOWNORMAL);
+    ImU32 col = Fade(hover ? Rgba(70, 235, 216) : Rgba(46, 217, 199, 200), a);
+    float cx = x + s / 2, t = std::max(1.0f, s * 0.11f);
+    d->AddCircle({cx, y + s * 0.13f}, s * 0.11f, col, 12, t);                                   // ring
+    d->AddLine({cx, y + s * 0.24f}, {cx, y + s * 0.92f}, col, t);                              // shaft
+    d->AddLine({cx - s * 0.24f, y + s * 0.38f}, {cx + s * 0.24f, y + s * 0.38f}, col, t);      // crossbar
+    d->PathArcTo({cx, y + s * 0.52f}, s * 0.40f, 0.35f, 3.14159f - 0.35f, 14);                // arc
+    d->PathStroke(col, 0, t);
+    float fx = s * 0.40f * std::cos(0.35f), fy = y + s * 0.52f + s * 0.40f * std::sin(0.35f);
+    for (float sg : {-1.0f, 1.0f})                                                           // flukes
+        d->AddTriangleFilled({cx + sg * (fx + s * 0.08f), fy - s * 0.20f}, {cx + sg * (fx + s * 0.10f), fy + s * 0.02f},
+                             {cx + sg * (fx - s * 0.12f), fy - s * 0.02f}, col);
+    Text(d, g_body, fs, {x + s + U(7), y + (s - ts.y) / 2}, Fade(hover ? kText : kSoft, a), label);
+}
+
 float g_show = 0;  // panel open, eased 0 to 1
 float g_tab_x = -1, g_tab_w = 0;  // underline, eased
 ImVec2 g_hl_tl{-1, -1}, g_hl_br{-1, -1};  // selection outline, eased
@@ -751,7 +798,9 @@ void DrawPanel(double) {
     {
         const char* close = g_setup ? "" : "F1  /  Back + Start";
         ImVec2 ts = TextSize(g_body, U(16), close);
-        Text(d, g_body, U(16), {br.x - U(40) - ts.x, tl.y + U(42)}, Fade(Rgba(154, 166, 178, 150), a), close);
+        float cx = br.x - U(40) - ts.x;
+        Text(d, g_body, U(16), {cx, tl.y + U(42)}, Fade(Rgba(154, 166, 178, 150), a), close);
+        AnyDockBadge(d, {g_setup ? br.x - U(40) : cx - U(28), tl.y + U(42)}, mouse, click, a);
     }
 
     // tabs
