@@ -725,28 +725,24 @@ void InfoCard(ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
          "Changes save as you make them. Built on XboxXBE-Recomp.");
 }
 
-// The launcher's badge, top right of the header: a small anchor and "An AnyDock port", opening the launcher's page.
-// right is its right edge, y the header's text line. The anchor is drawn: ring, shaft, crossbar, arc and flukes.
-void AnyDockBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a) {
-    const char* label = "An AnyDock port";
-    float fs = U(14), s = U(15);
+// The launcher's badge, top right of the header: the OneDeck logo and "A OneDeck port", opening the launcher's page.
+// right is its right edge, y the header's text line. The logo is drawn as in its SVG (a 120 box): two cards 56x78
+// with corners 9, the back one at 33,17, the front one at 26,24, and a play triangle 47.5,51 67.5,63 47.5,75.
+void LauncherBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a) {
+    const char* label = "A OneDeck port";
+    float fs = U(14), s = U(16);  // the logo's height
+    float k = s / 85.0f;          // the cards span x 26-89, y 17-102 of the box
     ImVec2 ts = TextSize(g_body, fs, label);
-    float w = s + U(7) + ts.x, x = right.x - w, y = right.y + U(1);
+    float lw = 63 * k, w = lw + U(7) + ts.x, x = right.x - w, y = right.y;
     bool hover = mouse && ImGui::IsMouseHoveringRect({x - U(4), y - U(4)}, {right.x + U(4), y + s + U(4)});
     if (hover) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     if (hover && click) ShellExecuteW(nullptr, L"open", L"https://github.com/goodthanksdev/harbour", nullptr, nullptr, SW_SHOWNORMAL);
-    ImU32 col = Fade(hover ? Rgba(70, 235, 216) : Rgba(46, 217, 199, 200), a);
-    float cx = x + s / 2, t = std::max(1.0f, s * 0.11f);
-    d->AddCircle({cx, y + s * 0.13f}, s * 0.11f, col, 12, t);                                   // ring
-    d->AddLine({cx, y + s * 0.24f}, {cx, y + s * 0.92f}, col, t);                              // shaft
-    d->AddLine({cx - s * 0.24f, y + s * 0.38f}, {cx + s * 0.24f, y + s * 0.38f}, col, t);      // crossbar
-    d->PathArcTo({cx, y + s * 0.52f}, s * 0.40f, 0.35f, 3.14159f - 0.35f, 14);                // arc
-    d->PathStroke(col, 0, t);
-    float fx = s * 0.40f * std::cos(0.35f), fy = y + s * 0.52f + s * 0.40f * std::sin(0.35f);
-    for (float sg : {-1.0f, 1.0f})                                                           // flukes
-        d->AddTriangleFilled({cx + sg * (fx + s * 0.08f), fy - s * 0.20f}, {cx + sg * (fx + s * 0.10f), fy + s * 0.02f},
-                             {cx + sg * (fx - s * 0.12f), fy - s * 0.02f}, col);
-    Text(d, g_body, fs, {x + s + U(7), y + (s - ts.y) / 2}, Fade(hover ? kText : kSoft, a), label);
+    auto at = [&](float bx, float by) { return ImVec2{x + (bx - 26) * k, y + (by - 17) * k}; };
+    float fade = hover ? 1.0f : 0.85f;
+    d->AddRectFilled(at(33, 17), at(89, 95), Fade(Rgba(70, 181, 170), a * fade), 9 * k);           // back card
+    d->AddRectFilled(at(26, 24), at(82, 102), Fade(Rgba(117, 228, 216), a * fade), 9 * k);         // front card
+    d->AddTriangleFilled(at(47.5f, 51), at(67.5f, 63), at(47.5f, 75), Fade(Rgba(15, 27, 38), a));  // play
+    Text(d, g_body, fs, {x + lw + U(7), y + (s - ts.y) / 2}, Fade(hover ? kText : kSoft, a), label);
 }
 
 float g_show = 0;  // panel open, eased 0 to 1
@@ -800,7 +796,7 @@ void DrawPanel(double) {
         ImVec2 ts = TextSize(g_body, U(16), close);
         float cx = br.x - U(40) - ts.x;
         Text(d, g_body, U(16), {cx, tl.y + U(42)}, Fade(Rgba(154, 166, 178, 150), a), close);
-        AnyDockBadge(d, {g_setup ? br.x - U(40) : cx - U(28), tl.y + U(42)}, mouse, click, a);
+        LauncherBadge(d, {g_setup ? br.x - U(40) : cx - U(28), tl.y + U(42)}, mouse, click, a);
     }
 
     // tabs
