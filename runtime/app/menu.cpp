@@ -727,7 +727,7 @@ void InfoCard(ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
 }
 
 // The launcher's badge, bottom right of the panel where the footer has no button: the OneDeck logo and its wordmark,
-// ONE light and DECK bold with wide letter spacing as on the logo, then PORTS; it opens onedeck.org. right is its
+// ONE light and DECK bold with wide letter spacing as on the logo, then PORTS; it opens the Ports page on onedeck.org. right is its
 // right edge, cy its centre line. The logo is drawn as in its SVG (a 120 box): two cards 56x78 with corners 9, the back
 // one at 33,17, the front one at 26,24, and a play triangle 47.5,51 67.5,63 47.5,75.
 float Spaced(ImDrawList* d, ImFont* f, float size, ImVec2 p, ImU32 col, const char* s, float gap) {
@@ -748,7 +748,7 @@ void LauncherBadge(ImDrawList* d, ImVec2 right, float cy, bool mouse, bool click
     float w = lw + U(10) + tw, x = right.x - w, y = cy - s / 2;
     bool hover = mouse && ImGui::IsMouseHoveringRect({x - U(6), y - U(6)}, {right.x + U(6), y + s + U(6)});
     if (hover) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-    if (hover && click) ShellExecuteW(nullptr, L"open", L"https://onedeck.org", nullptr, nullptr, SW_SHOWNORMAL);
+    if (hover && click) ShellExecuteW(nullptr, L"open", L"https://onedeck.org/ports.html", nullptr, nullptr, SW_SHOWNORMAL);
     auto at = [&](float bx, float by) { return ImVec2{x + (bx - 26) * k, y + (by - 17) * k}; };
     float fade = hover ? 1.0f : 0.85f;
     d->AddRectFilled(at(33, 17), at(89, 95), Fade(Rgba(70, 181, 170), a * fade), 9 * k);           // back card
