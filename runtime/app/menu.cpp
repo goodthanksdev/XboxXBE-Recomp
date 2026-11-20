@@ -736,7 +736,7 @@ void LauncherBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a)
     float lw = 63 * k, w = lw + U(7) + ts.x, x = right.x - w, y = right.y;
     bool hover = mouse && ImGui::IsMouseHoveringRect({x - U(4), y - U(4)}, {right.x + U(4), y + s + U(4)});
     if (hover) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
-    if (hover && click) ShellExecuteW(nullptr, L"open", L"https://github.com/goodthanksdev/harbour", nullptr, nullptr, SW_SHOWNORMAL);
+    if (hover && click) ShellExecuteW(nullptr, L"open", L"https://onedeck.org", nullptr, nullptr, SW_SHOWNORMAL);
     auto at = [&](float bx, float by) { return ImVec2{x + (bx - 26) * k, y + (by - 17) * k}; };
     float fade = hover ? 1.0f : 0.85f;
     d->AddRectFilled(at(33, 17), at(89, 95), Fade(Rgba(70, 181, 170), a * fade), 9 * k);           // back card
