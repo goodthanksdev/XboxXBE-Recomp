@@ -725,11 +725,11 @@ void InfoCard(ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
          "Changes save as you make them. Built on XboxXBE-Recomp.");
 }
 
-// The launcher's badge, top right of the header: the OneDeck logo and "A OneDeck port", opening the launcher's page.
+// The launcher's badge, top right of the header: the OneDeck logo and "OneDeck Ports", opening the launcher's page.
 // right is its right edge, y the header's text line. The logo is drawn as in its SVG (a 120 box): two cards 56x78
 // with corners 9, the back one at 33,17, the front one at 26,24, and a play triangle 47.5,51 67.5,63 47.5,75.
 void LauncherBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a) {
-    const char* label = "A OneDeck port";
+    const char* label = "OneDeck Ports";
     float fs = U(14), s = U(16);  // the logo's height
     float k = s / 85.0f;          // the cards span x 26-89, y 17-102 of the box
     ImVec2 ts = TextSize(g_body, fs, label);
