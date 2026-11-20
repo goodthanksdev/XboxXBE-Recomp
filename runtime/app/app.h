@@ -32,6 +32,7 @@ struct Settings {
     bool show_fps = false;             // a frame rate counter in the corner
     uint32_t mouse_sensitivity = 100;  // percent, GameInfo::mouse_stick
     std::string game_path;             // a disc image or game folder picked in the setup, looked in before assets
+    bool menu_known = false;           // the options menu was opened once: its "Settings F1" hint stops showing
     bool setup_done = false;           // the setup window was finished once: it opens again only when needed           // tell the game it's on a 4:3 TV and show 4:3 (read at start)
     std::string join_ip;                   // co-op: a host past the LAN the system link search also asks
 };

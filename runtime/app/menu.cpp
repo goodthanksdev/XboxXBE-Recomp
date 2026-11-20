@@ -538,6 +538,7 @@ void Run(Cmd cmd) {
         if (g_setup) return;
         g_open = !g_open;
         g_editing = false;
+        if (g_open && !app::Get().menu_known) app::Get().menu_known = true, app::Save();  // found it: no more hint
         return;
     }
     if (!g_open || g_tabs.empty() || input::Capturing()) return;
@@ -725,16 +726,27 @@ void InfoCard(ImDrawList* d, ImVec2 tl, ImVec2 br, float a) {
          "Changes save as you make them. Built on XboxXBE-Recomp.");
 }
 
-// The launcher's badge, top right of the header: the OneDeck logo and "OneDeck Ports", opening the launcher's page.
-// right is its right edge, y the header's text line. The logo is drawn as in its SVG (a 120 box): two cards 56x78
-// with corners 9, the back one at 33,17, the front one at 26,24, and a play triangle 47.5,51 67.5,63 47.5,75.
-void LauncherBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a) {
-    const char* label = "OneDeck Ports";
-    float fs = U(14), s = U(16);  // the logo's height
-    float k = s / 85.0f;          // the cards span x 26-89, y 17-102 of the box
-    ImVec2 ts = TextSize(g_body, fs, label);
-    float lw = 63 * k, w = lw + U(7) + ts.x, x = right.x - w, y = right.y;
-    bool hover = mouse && ImGui::IsMouseHoveringRect({x - U(4), y - U(4)}, {right.x + U(4), y + s + U(4)});
+// The launcher's badge, bottom right of the panel where the footer has no button: the OneDeck logo and its wordmark,
+// ONE light and DECK bold with wide letter spacing as on the logo, then PORTS; it opens onedeck.org. right is its
+// right edge, cy its centre line. The logo is drawn as in its SVG (a 120 box): two cards 56x78 with corners 9, the back
+// one at 33,17, the front one at 26,24, and a play triangle 47.5,51 67.5,63 47.5,75.
+float Spaced(ImDrawList* d, ImFont* f, float size, ImVec2 p, ImU32 col, const char* s, float gap) {
+    for (const char* c = s; *c; c++) {
+        char one[2] = {*c, 0};
+        if (d) Text(d, f, size, p, col, one);
+        p.x += TextSize(f, size, one).x + gap;
+    }
+    return p.x - gap;
+}
+void LauncherBadge(ImDrawList* d, ImVec2 right, float cy, bool mouse, bool click, float a) {
+    float fs = U(15), gap = U(3.2f), s = U(20);  // s: the logo's height
+    float k = s / 85.0f;                           // the cards span x 26-89, y 17-102 of the box
+    float lw = 63 * k;
+    float tw = Spaced(nullptr, g_body, fs, {0, 0}, 0, "ONE", gap) + gap;
+    tw = Spaced(nullptr, g_bold, fs, {tw, 0}, 0, "DECK", gap) + U(10);
+    tw = Spaced(nullptr, g_body, fs, {tw, 0}, 0, "PORTS", gap);
+    float w = lw + U(10) + tw, x = right.x - w, y = cy - s / 2;
+    bool hover = mouse && ImGui::IsMouseHoveringRect({x - U(6), y - U(6)}, {right.x + U(6), y + s + U(6)});
     if (hover) ImGui::SetMouseCursor(ImGuiMouseCursor_Hand);
     if (hover && click) ShellExecuteW(nullptr, L"open", L"https://onedeck.org", nullptr, nullptr, SW_SHOWNORMAL);
     auto at = [&](float bx, float by) { return ImVec2{x + (bx - 26) * k, y + (by - 17) * k}; };
@@ -742,7 +754,11 @@ void LauncherBadge(ImDrawList* d, ImVec2 right, bool mouse, bool click, float a)
     d->AddRectFilled(at(33, 17), at(89, 95), Fade(Rgba(70, 181, 170), a * fade), 9 * k);           // back card
     d->AddRectFilled(at(26, 24), at(82, 102), Fade(Rgba(117, 228, 216), a * fade), 9 * k);         // front card
     d->AddTriangleFilled(at(47.5f, 51), at(67.5f, 63), at(47.5f, 75), Fade(Rgba(15, 27, 38), a));  // play
-    Text(d, g_body, fs, {x + lw + U(7), y + (s - ts.y) / 2}, Fade(hover ? kText : kSoft, a), label);
+    float ty = cy - TextSize(g_bold, fs, "D").y / 2, tx = x + lw + U(10);
+    ImU32 bright = Fade(hover ? Rgba(255, 255, 255) : kText, a), soft = Fade(kSoft, a);
+    tx = Spaced(d, g_body, fs, {tx, ty}, bright, "ONE", gap) + gap;
+    tx = Spaced(d, g_bold, fs, {tx, ty}, bright, "DECK", gap) + U(10);
+    Spaced(d, g_body, fs, {tx, ty}, soft, "PORTS", gap);
 }
 
 float g_show = 0;  // panel open, eased 0 to 1
@@ -794,9 +810,7 @@ void DrawPanel(double) {
     {
         const char* close = g_setup ? "" : "F1  /  Back + Start";
         ImVec2 ts = TextSize(g_body, U(16), close);
-        float cx = br.x - U(40) - ts.x;
-        Text(d, g_body, U(16), {cx, tl.y + U(42)}, Fade(Rgba(154, 166, 178, 150), a), close);
-        LauncherBadge(d, {g_setup ? br.x - U(40) : cx - U(28), tl.y + U(42)}, mouse, click, a);
+        Text(d, g_body, U(16), {br.x - U(40) - ts.x, tl.y + U(42)}, Fade(Rgba(154, 166, 178, 150), a), close);
     }
 
     // tabs
@@ -1018,9 +1032,8 @@ void DrawPanel(double) {
         Text(d, g_bold, U(22), {p.x + (w - ls.x) / 2, p.y + (h - ls.y) / 2}, Fade(off ? Rgba(120, 130, 140) : Rgba(6, 30, 27), a), label);
         if (is_sel) g_hl_tl = p, g_hl_br = q;
     } else {
-        const char* saved = "Saved automatically";
-        ImVec2 ss = TextSize(g_body, U(16), saved);
-        Text(d, g_body, U(16), {br.x - U(40) - ss.x, fy + U(4)}, Fade(Rgba(154, 166, 178, 150), a), saved);
+        // (changes save as you make them, which the About card says: the corner is the launcher's)
+        LauncherBadge(d, {br.x - U(40), 0}, fy + U(4) + TextSize(g_body, U(16), "S").y / 2, mouse, click, a);
     }
     ImGui::End();
 }
@@ -1289,9 +1302,9 @@ void Ui(double fps) {
         fg->AddRectFilled(p, {p.x + ts.x + U(20), p.y + ts.y + U(8)}, Rgba(10, 14, 18, 170), U(8));
         Text(fg, g_bold, U(17), {p.x + U(10), p.y + U(4)}, kText, t);
     }
-    // a hint for the first seconds of a run
+    // a hint for the first seconds of a run, until the menu has been opened once
     double t = Now();
-    if (!g_open && t > 1 && t < 11) {
+    if (!g_open && !app::Get().menu_known && t > 1 && t < 11) {
         float alpha = float(std::min({1.0, t - 1, 11 - t}));
         const char* msg = "Settings";
         float w = U(26) + U(8) + TextSize(g_body, U(17), msg).x + U(20) + TextSize(g_body, U(15), "F1  /  Back + Start").x + U(28);

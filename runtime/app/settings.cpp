@@ -62,6 +62,7 @@ void Load() {
     s.mouse_sensitivity = std::clamp(t["mouse_sensitivity"].value_or(s.mouse_sensitivity), 10u, 500u);
     s.game_path = t["game_path"].value_or(s.game_path);
     s.setup_done = t["setup_done"].value_or(s.setup_done);
+    s.menu_known = t["menu_known"].value_or(s.menu_known);
     for (const Option& o : kGame.options) {
         if (o.flag) *o.flag = t[o.key].value_or(*o.flag);
         else *o.value = t[o.key].value_or(*o.value);
@@ -95,7 +96,8 @@ toml::table Table() {
                   {"show_fps", s.show_fps},
                   {"mouse_sensitivity", int64_t(s.mouse_sensitivity)},
                   {"game_path", s.game_path},
-                  {"setup_done", s.setup_done}};
+                  {"setup_done", s.setup_done},
+                  {"menu_known", s.menu_known}};
     for (const Option& o : kGame.options) {
         if (o.flag) t.insert(o.key, *o.flag);
         else t.insert(o.key, int64_t(*o.value));
