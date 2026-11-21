@@ -1268,6 +1268,29 @@ void Pad(int port, input::Pad& p) {
         if (apressed & 32) Push(kTabPrev);
         if (apressed & 16) Push(kTabNext);
     }
+    // Back + Start is the menu's, never the game's: Start or Back on its own reaches the game a moment late (0.12 s), in
+    // case the other follows (a quick tap shorter than that is passed on as it's let go). Once both are down neither
+    // does until both are up again. Otherwise opening or closing the menu also paused or unpaused the game.
+    {
+        static bool combo = false;
+        static double since = 0, give_until = 0;
+        static uint16_t hidden = 0, give = 0;
+        const uint16_t pair = kStartB | kBackB, held = p.buttons & pair;
+        double now = Now();
+        if (held && !(prev & pair)) since = now;
+        if (held == pair) combo = true, hidden = 0, give_until = 0;
+        if (combo) {
+            p.buttons &= uint16_t(~pair);
+            if (!held) combo = false;
+        } else if (held && now - since < 0.12) {
+            hidden |= held;  // not yet: maybe the other one is coming
+            p.buttons &= uint16_t(~pair);
+        } else {
+            if (!held && hidden) give = hidden, give_until = now + 0.1;  // a quick tap: the game gets it now
+            hidden = 0;
+        }
+        if (now < give_until) p.buttons |= give;
+    }
     prev = b;
     prev_analog = an;
     if (g_open) {
